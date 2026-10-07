@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Bid files · {{ bid.title|default:bid }}{% endblock %}
+{% block head_extra %}{% if pending_downloads %}<meta http-equiv="refresh" content="8">{% endif %}{% endblock %}
+
+{% block content %}
+  <main class="shell">
+    <header>
+      <div>
+        <p class="eyebrow">BID DOCUMENTS</p>
+        <h1>{{ bid.title|default:bid }}</h1>
+        <p class="muted">{{ bid.bid_number|default:"GeM bid" }} · Download status updates automatically while files are processing</p>
+      </div>
+      <a class="admin-link" href="/">Back to bids</a>
+    </header>
+
+    <section class="card">
+      <h2>Extracted files and links</h2>
+      {% if retryable_links %}<form method="post" action="{% url 'bid-link-download' bid.id %}" class="download-form">{% csrf_token %}<button type="submit">Download / retry pending links</button></form>{% endif %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>File name</th><th>Parent file</th><th>Depth</th><th>Link text</th><th>URL</th><th>Source page</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="file-name-cell">{{ bid.source_filename }}</td>
+              <td>—</td>
+              <td>0</td>
+              <td>Uploaded bid PDF</td>
+              <td>—</td>
+              <td>—</td>
+              <td>Available</td>
+              <td><a class="view-link" href="{% url 'bid-pdf-view' bid.id %}" target="_blank" rel="noopener">View PDF</a></td>
+            </tr>
+            {% for linked in links %}
+            <tr>
+              <td class="file-name-cell">{{ linked.filename }}</td>
+              <td>{% for edge in linked.incoming_edges.all %}{% if edge.source_document %}{{ edge.source_document.filename }}{% else %}{{ bid.source_filename }}{% endif %}{% if edge.page_number %} (p. {{ edge.page_number }}){% endif %}<br>{% empty %}{{ bid.source_filename }}{% endfor %}</td>
+              <td>{{ linked.depth }}</td>
+              <td>{{ linked.label|default:"—" }}</td>
+              <td class="url-cell"><a href="{{ linked.url }}" target="_blank" rel="noopener noreferrer">{{ linked.url }}</a></td>
+              <td>{% if linked.page_number %}{{ linked.page_number }}{% else %}—{% endif %}</td>
+              <td><span class="doc-status {{ linked.status }}">{{ linked.get_status_display }}</span>{% if linked.error %}<span class="doc-error">{{ linked.error }}</span>{% endif %}</td>
+              <td>{% if linked.status == "downloaded" %}<a class="view-link" href="{% url 'linked-file-view' bid.id linked.id %}" target="_blank" rel="noopener">{% if linked.content_type == "application/pdf" or linked.filename|lower|slice:"-4:" == ".pdf" %}View file{% else %}Download file{% endif %}</a><br><a class="source-link" href="{{ linked.url }}" target="_blank" rel="noopener noreferrer">Source</a>{% else %}<a class="view-link" href="{{ linked.url }}" target="_blank" rel="noopener noreferrer">Open source</a>{% endif %}</td>
+            </tr>
+            {% empty %}
+            <tr class="empty"><td colspan="8">No hyperlinks were found in this PDF.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="footnote">Documents are downloaded in the background. Linked PDFs are scanned recursively up to four levels; a limit of 100 linked documents is processed per bid.</p>
+    </section>
+  </main>
+{% endblock %}

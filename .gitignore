@@ -1,0 +1,46 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+db.sqlite3
+staticfiles/
+storage/**
+!storage/.gitkeep
+.pytest_cache/
+cat > .gitignore <<'EOF'
+# Environment / secrets
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Django
+db.sqlite3
+*.sqlite3
+
+# User/generated files
+storage/
+media/
+staticfiles/
+
+# Generated PDFs / documents
+*.pdf
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Test/cache
+.pytest_cache/
+.coverage
+htmlcov/
+EOF

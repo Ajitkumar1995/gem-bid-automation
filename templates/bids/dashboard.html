@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}GeM bids · GeM Bid Workspace{% endblock %}
+
+{% block content %}
+  <main class="shell">
+    <header><div><p class="eyebrow">TENDER WORKSPACE</p><h1>GeM bids</h1><p class="muted">Upload a bid document, review its files, and prepare bid-specific documents from your company profile.</p></div></header>
+    {% if messages %}<section class="card messages" role="status">{% for message in messages %}<p>{{ message }}</p>{% endfor %}</section>{% endif %}
+    <section class="card">
+      <h2>Create new bid</h2>
+      <p class="muted">Active bids: <strong id="active-bid-count">{{ active_bid_count }} / {{ active_bid_limit }}</strong></p>
+      {% if bid_limit_reached %}<p class="error" id="bid-limit-message">You have reached your maximum active bid limit of {{ active_bid_limit }}. Please complete or delete an existing bid before creating another bid.</p>{% else %}<p class="muted">Upload a GeM PDF to start a bid workspace. Reusable company documents remain in Company Profile.</p>{% endif %}
+      <form id="upload-form" data-at-limit="{{ bid_limit_reached|yesno:'true,false' }}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <label>Bid title <input name="title" maxlength="255" placeholder="e.g. Office equipment supply" {% if bid_limit_reached %}disabled{% endif %}></label>
+        <label>Bid number <input name="bid_number" maxlength="120" placeholder="Optional" {% if bid_limit_reached %}disabled{% endif %}></label>
+        <label>GeM PDF <input name="source_pdf" type="file" accept="application/pdf,.pdf" required {% if bid_limit_reached %}disabled{% endif %}></label>
+        <button type="submit" {% if bid_limit_reached %}disabled{% endif %}>Upload and process</button><span id="upload-message" role="status"></span>
+      </form>
+    </section>
+    <section class="card"><h2>Active bids</h2>
+      <div class="table-wrap"><table><thead><tr><th>Bid</th><th>Bid number</th><th>Status</th><th>Linked files</th><th>Uploaded</th><th>File and actions</th></tr></thead>
+      <tbody id="bid-list">{% for bid in bids %}<tr><td>{{ bid.title|default:bid }}</td><td>{{ bid.bid_number|default:'—' }}</td><td><span class="status {{ bid.status }}">{{ bid.get_status_display }}</span>{% if bid.processing_error %}<p class="error">{{ bid.processing_error }}</p>{% endif %}</td><td>{{ bid.linked_documents.count }}</td><td>{{ bid.created_at|date:'d M Y, H:i' }}</td><td>{% if bid.source_pdf %}<span class="file-name">{{ bid.source_filename }}</span><div class="bid-action-links"><a class="pdf-action-link" href="{% url 'bid-link-list' bid.id %}" target="_blank" rel="noopener">View links</a><a class="pdf-action-link" href="{% url 'bid-prepare' bid.id %}">Prepare PDFs</a><form method="post" action="{% url 'bid-complete' bid.id %}" onsubmit="return confirm('Complete this bid and clear its temporary files?')">{% csrf_token %}<button class="small-button" name="action" value="complete">Complete Bid</button></form><form method="post" action="{% url 'bid-complete' bid.id %}" onsubmit="return confirm('Delete this bid and its temporary files?')">{% csrf_token %}<button class="small-button delete-button" name="action" value="delete">Delete Bid</button></form></div>{% else %}—{% endif %}</td></tr>{% empty %}<tr class="empty"><td colspan="6">No active bids. Create a new bid above.</td></tr>{% endfor %}</tbody></table></div>
+    </section>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="/static/js/bids.js"></script>
+{% endblock %}

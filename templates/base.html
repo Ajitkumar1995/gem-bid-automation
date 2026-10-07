@@ -1,0 +1,89 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f2e28">
+  <meta name="view-transition" content="same-origin">
+  <title>{% block title %}GeM Bid Workspace{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+  <div class="site-frame">
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="site-brand" href="{% url 'bid-dashboard' %}" aria-label="GeM Bid Workspace home">
+          <span class="brand-mark" aria-hidden="true">G</span>
+          <span class="brand-text"><strong>GeM Workspace</strong><small>Bid preparation</small></span>
+        </a>
+        {% if request.user.is_authenticated %}
+          {% with url_name=request.resolver_match.url_name %}
+          <button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Toggle navigation">
+            <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+          </button>
+          <nav class="site-navigation" id="site-nav" aria-label="Main navigation">
+            <a class="site-nav-link{% if url_name == 'bid-dashboard' or url_name == 'bid-link-list' or url_name == 'bid-prepare' or url_name == 'generated-document-edit' or url_name == 'generated-document-view' or url_name == 'generated-document-preview' or url_name == 'generated-document-delete' %} is-active{% endif %}" href="{% url 'bid-dashboard' %}"{% if url_name == 'bid-dashboard' %} aria-current="page"{% endif %}>Bids</a>
+            <a class="site-nav-link{% if url_name == 'company-profile' or url_name == 'company-signature-view' or url_name == 'company-stamp-view' or url_name == 'company-document-view' %} is-active{% endif %}" href="{% url 'company-profile' %}"{% if url_name == 'company-profile' %} aria-current="page"{% endif %}>Company profile</a>
+            {% if request.user.is_staff %}<a class="site-nav-link" href="/admin/">Admin</a>{% endif %}
+            <span class="site-user">
+              <span class="site-user-avatar" aria-hidden="true">{{ request.user.get_username|slice:":1"|upper }}</span>
+              <span class="site-user-name">{{ request.user.get_full_name|default:request.user.get_username }}</span>
+            </span>
+            <form class="site-logout" method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">Sign out</button></form>
+          </nav>
+          {% endwith %}
+        {% else %}
+          <nav class="site-navigation" aria-label="Main navigation">
+            <a class="site-nav-link is-active" href="{% url 'login' %}" aria-current="page">Sign in</a>
+          </nav>
+        {% endif %}
+      </div>
+    </header>
+    <div class="site-main">
+      {% block content %}{% endblock %}
+    </div>
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div class="footer-brand">
+          <span class="brand-mark" aria-hidden="true">G</span>
+          <div>
+            <strong>GeM Bid Workspace</strong>
+            <p>Keep bid documents organized, generate signed PDFs from your company profile, and stay ready for GeM review.</p>
+          </div>
+        </div>
+        {% if request.user.is_authenticated %}
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="{% url 'bid-dashboard' %}">Bids</a>
+          <a href="{% url 'company-profile' %}">Company profile</a>
+          {% if request.user.is_staff %}<a href="/admin/">Admin</a>{% endif %}
+        </nav>
+        {% endif %}
+        <p class="footer-note">&copy; {% now "Y" %} GeM Bid Workspace</p>
+      </div>
+    </footer>
+  </div>
+  <script>
+    (function () {
+      var toggle = document.querySelector('.site-nav-toggle');
+      var nav = document.getElementById('site-nav');
+      if (!toggle || !nav) return;
+      function setOpen(open) {
+        nav.classList.toggle('is-open', open);
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      toggle.addEventListener('click', function () {
+        setOpen(!nav.classList.contains('is-open'));
+      });
+      document.addEventListener('click', function (e) {
+        if (nav.classList.contains('is-open') && !nav.contains(e.target) && !toggle.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') setOpen(false);
+      });
+    })();
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
