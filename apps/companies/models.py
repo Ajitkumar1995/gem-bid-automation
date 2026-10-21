@@ -6,6 +6,7 @@ from django.db import models
 def default_signature_document_types():
     return ["experience_declaration", "past_performance", "bidder_turnover", "additional_doc_1", "additional_doc_2", "atc_certificate", "boq_specifications", "oem_annual_turnover"]
 
+
 class CompanyProfile(models.Model):
     class EnterpriseType(models.TextChoices):
         MICRO = "micro", "Micro"

@@ -19,12 +19,22 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from apps.bids.views import BidViewSet
+from apps.common.views import (
+    EmailLoginView,
+    WorkspacePasswordResetDoneView,
+    WorkspacePasswordResetView,
+    register,
+)
 
 router = DefaultRouter()
 router.register("bids", BidViewSet, basename="bid")
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('accounts/login/', EmailLoginView.as_view(), name='login'),
+    path('accounts/register/', register, name='register'),
+    path('accounts/password_reset/', WorkspacePasswordResetView.as_view(), name='password_reset'),
+    path('accounts/password_reset/done/', WorkspacePasswordResetDoneView.as_view(), name='password_reset_done'),
     path('accounts/', include('django.contrib.auth.urls')),
     path('', include('apps.bids.urls')),
     path('companies/', include('apps.companies.urls')),

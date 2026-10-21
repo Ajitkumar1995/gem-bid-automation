@@ -72,7 +72,7 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Kolkata"
 USE_I18N = True
 USE_TZ = True
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/media/"
@@ -83,6 +83,22 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 DEFAULT_ACTIVE_BID_LIMIT = max(1, min(500, int(os.getenv("DEFAULT_ACTIVE_BID_LIMIT", "1"))))
 ACTIVE_BID_EXPIRY_DAYS = max(1, min(3650, int(os.getenv("ACTIVE_BID_EXPIRY_DAYS", "30"))))
 LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "bid-dashboard"
+LOGOUT_REDIRECT_URL = "login"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "GeM Bid Workspace <webmaster@localhost>")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+if EMAIL_HOST:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+    EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
+    EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "0") == "1"
+    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+    EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
+else:
+    # Local development remains usable without an SMTP server; reset emails
+    # (including their one-time links) are written to the application console.
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 SESSION_COOKIE_HTTPONLY = True

@@ -17,7 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
     },
   };
   if (!form || !field || !frame) return;
-  const previewUrl = window.location.pathname.replace(/edit\/$/, "preview/");
+  const previewUrl = form.dataset.previewUrl || window.location.pathname.replace(/edit\/$/, "preview/");
   let timer;
   let activeUrl;
   let controller;

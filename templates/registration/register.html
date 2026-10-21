@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Create account · GeM Bid Workspace{% endblock %}
+
+{% block content %}
+<main class="shell login-shell">
+  <section class="card">
+    <p class="eyebrow">TENDER WORKSPACE</p>
+    <h1>Create your account</h1>
+    <p class="muted">Your username will be the part of your email address before @.</p>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      <label for="id_email">Email address</label>
+      {{ form.email }}{{ form.email.errors }}
+      <label for="id_password1">Password</label>
+      {{ form.password1 }}{{ form.password1.errors }}
+      <label for="id_password2">Confirm password</label>
+      {{ form.password2 }}{{ form.password2.errors }}
+      <button type="submit">Create account</button>
+    </form>
+    <p class="muted">Already registered? <a href="{% url 'login' %}">Sign in</a>.</p>
+  </section>
+</main>
+{% endblock %}

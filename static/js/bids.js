@@ -6,8 +6,9 @@ $(function () {
     if ($form.data("at-limit") === true || $form.data("at-limit") === "true") return;
     const data = new FormData(this);
     const csrf = $("input[name=csrfmiddlewaretoken]").val();
+    const uploadUrl = $form.data("upload-url") || "/api/bids/";
     const $button = $form.find("button").prop("disabled", true).text("Uploading…");
-    $.ajax({url: "/api/bids/", method: "POST", data, processData: false, contentType: false,
+    $.ajax({url: uploadUrl, method: "POST", data, processData: false, contentType: false,
       headers: {"X-CSRFToken": csrf}
     }).done(function () {
       $message.text("Upload received. Processing has started.").css("color", "#147254");

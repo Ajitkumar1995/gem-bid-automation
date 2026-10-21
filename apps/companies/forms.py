@@ -14,6 +14,11 @@ GENERATED_SIGNATURE_CHOICES = [
 
 
 class CompanyProfileForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in ("legal_name", "address", "signatory_name"):
+            self.fields[field_name].required = True
+
     class Meta:
         model = CompanyProfile
         exclude = (

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Company profile · GeM Bid Workspace{% endblock %}
 
@@ -6,16 +7,16 @@
 <main class="shell">
   <header>
     <div><p class="eyebrow">REUSABLE BIDDER INFORMATION</p><h1>Company profile</h1><p class="muted">Save accurate company details once. They will be used in generated bid drafts.</p></div>
-    <a class="admin-link" href="/">Back to bids</a>
+    <a class="admin-link" href="{% url 'bid-dashboard' %}">Back to bids</a>
   </header>
   {% for message in messages %}<p class="notice">{{ message }}</p>{% endfor %}
 
-  <section class="card">
+  <section class="card" data-collapsible>
     <h2>Company and authorized signatory</h2>
     <form method="post">{% csrf_token %}<input type="hidden" name="form_action" value="profile">{{ profile_form.as_p }}<button type="submit">Save company profile</button></form>
   </section>
 
-  <section class="card signature-card">
+  <section class="card signature-card" data-collapsible>
     <h2>Signature editor</h2>
     <p class="muted">Upload once, adjust the angle and size, and save. Choose which generated documents use the saved signature.</p>
     <form method="post" enctype="multipart/form-data" id="signature-editor-form">
@@ -49,7 +50,7 @@
     </form>
   </section>
 
-  <section class="card">
+  <section class="card" data-collapsible>
     <h2>Supporting documents</h2>
     <p class="muted">Choose separately whether the saved signature and company stamp appear on each signed PDF copy. Uploaded originals stay unchanged.</p>
     <form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="form_action" value="document">{{ document_form.as_p }}<button type="submit">Add supporting document</button></form>
@@ -65,5 +66,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/signature_editor.js" defer></script>
+<script src="{% static 'js/signature_editor.js' %}" defer></script>
 {% endblock %}

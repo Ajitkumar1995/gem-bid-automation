@@ -41,6 +41,10 @@ DOCUMENT_POSITION_FIELDS = (
 )
 
 
+def _profile_is_complete(profile):
+    return bool(profile and profile.legal_name.strip() and profile.address.strip() and profile.signatory_name.strip())
+
+
 def _document_positions(profile, document, data=None):
     positions = {}
     for field in DOCUMENT_POSITION_FIELDS:
@@ -164,7 +168,7 @@ def prepare_bid(request, bid_id):
             item_formset.save()
             if action.startswith("generate:"):
                 document_type = action.split(":", 1)[1]
-                if not profile or not profile.legal_name or not profile.address or not profile.signatory_name:
+                if not _profile_is_complete(profile):
                     messages.error(request, "Complete the company legal name, address, and authorized signatory in Company Profile before generating PDFs.")
                     return redirect("company-profile")
                 if document_type not in dict(DOCUMENTS):
@@ -174,7 +178,7 @@ def prepare_bid(request, bid_id):
                 messages.success(request, f"{row.title} is ready to edit or download.")
                 return redirect("generated-document-edit", document_id=row.pk)
             if action == "create_custom":
-                if not profile or not profile.legal_name or not profile.address or not profile.signatory_name:
+                if not _profile_is_complete(profile):
                     messages.error(request, "Complete the company legal name, address, and authorized signatory in Company Profile before generating PDFs.")
                     return redirect("company-profile")
                 title = custom_document_form.cleaned_data["title"].strip()
@@ -230,6 +234,9 @@ def prepare_bid(request, bid_id):
 def edit_generated_document(request, document_id):
     document = get_object_or_404(GeneratedDocument, pk=document_id, generated_by=request.user, bid__uploaded_by=request.user)
     profile = CompanyProfile.objects.filter(owner=request.user).first()
+    if not _profile_is_complete(profile):
+        messages.error(request, "Complete the company legal name, address, and authorized signatory in Company Profile before generating PDFs.")
+        return redirect("company-profile")
     if request.method == "POST":
         content = request.POST.get("editable_content", "")
         if len(content) > MAX_EDITABLE_CONTENT_LENGTH:
@@ -276,7 +283,9 @@ def preview_generated_document(request, document_id):
     content = request.POST.get("editable_content", "")
     if len(content) > MAX_EDITABLE_CONTENT_LENGTH:
         return HttpResponseBadRequest(f"Document text must be {MAX_EDITABLE_CONTENT_LENGTH:,} characters or less.")
-    profile = get_object_or_404(CompanyProfile, owner=request.user)
+    profile = CompanyProfile.objects.filter(owner=request.user).first()
+    if not _profile_is_complete(profile):
+        return HttpResponseBadRequest("Complete the company legal name, address, and authorized signatory in Company Profile before generating PDFs.")
     try:
         positions = _document_positions(profile, document, request.POST)
     except ValueError as exc:
@@ -319,8 +328,11 @@ def delete_custom_generated_document(request, document_id):
 @xframe_options_sameorigin
 def view_generated_document(request, document_id):
     doc = get_object_or_404(GeneratedDocument, pk=document_id, generated_by=request.user, bid__uploaded_by=request.user)
+    profile = CompanyProfile.objects.filter(owner=request.user).first()
+    if not _profile_is_complete(profile):
+        messages.error(request, "Complete the company legal name, address, and authorized signatory in Company Profile before generating PDFs.")
+        return redirect("company-profile")
     if doc.template_version != EDITABLE_TEMPLATE_VERSION:
-        profile = get_object_or_404(CompanyProfile, owner=request.user)
         _store_generated_pdf(
             doc,
             profile,
@@ -340,7 +352,6 @@ def view_generated_document(request, document_id):
         response["X-Content-Type-Options"] = "nosniff"
         response["Cache-Control"] = "private, no-store"
         return response
-    profile = get_object_or_404(CompanyProfile, owner=request.user)
     positions = _document_positions(profile, doc)
     _title, _content, pdf = build_document(
         _profile_with_positions(profile, positions),

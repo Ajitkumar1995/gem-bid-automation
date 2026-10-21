@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}GeM bids · GeM Bid Workspace{% endblock %}
 
@@ -10,10 +11,8 @@
       <h2>Create new bid</h2>
       <p class="muted">Active bids: <strong id="active-bid-count">{{ active_bid_count }} / {{ active_bid_limit }}</strong></p>
       {% if bid_limit_reached %}<p class="error" id="bid-limit-message">You have reached your maximum active bid limit of {{ active_bid_limit }}. Please complete or delete an existing bid before creating another bid.</p>{% else %}<p class="muted">Upload a GeM PDF to start a bid workspace. Reusable company documents remain in Company Profile.</p>{% endif %}
-      <form id="upload-form" data-at-limit="{{ bid_limit_reached|yesno:'true,false' }}" enctype="multipart/form-data">
+      <form id="upload-form" action="{% url 'bid-list' %}" data-upload-url="{% url 'bid-list' %}" data-at-limit="{{ bid_limit_reached|yesno:'true,false' }}" enctype="multipart/form-data">
         {% csrf_token %}
-        <label>Bid title <input name="title" maxlength="255" placeholder="e.g. Office equipment supply" {% if bid_limit_reached %}disabled{% endif %}></label>
-        <label>Bid number <input name="bid_number" maxlength="120" placeholder="Optional" {% if bid_limit_reached %}disabled{% endif %}></label>
         <label>GeM PDF <input name="source_pdf" type="file" accept="application/pdf,.pdf" required {% if bid_limit_reached %}disabled{% endif %}></label>
         <button type="submit" {% if bid_limit_reached %}disabled{% endif %}>Upload and process</button><span id="upload-message" role="status"></span>
       </form>
@@ -27,5 +26,5 @@
 
 {% block scripts %}
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="/static/js/bids.js"></script>
+  <script src="{% static 'js/bids.js' %}"></script>
 {% endblock %}

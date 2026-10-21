@@ -66,6 +66,9 @@ Opening a bid's **View** page lists discovered links and downloaded files. Pendi
 
 Open `/` for bids, `/admin/` for administration, `/api/bids/` for the authenticated REST API, and `/api/docs/` for Swagger UI. `/api/schema/` serves the OpenAPI document. SQLite is the local default; set `DATABASE_URL` for PostgreSQL.
 
+Users can create an account at `/accounts/register/` with an email and password. The username is the lowercased part before `@`; users sign in with their full email address. The sign-in page includes **Forgot your password?**. In local development, the one-time reset link appears on the confirmation page and reset emails are also printed in the runserver console. For deployment, configure `DEFAULT_FROM_EMAIL`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS` or `EMAIL_USE_SSL`, `EMAIL_HOST_USER`, and `EMAIL_HOST_PASSWORD` in `.env so password reset links are delivered by your SMTP provider. The browser link is disabled outside `DEBUG` because anyone entering an account email could otherwise reset that account's password.
+
+
 ## Docker Compose
 
 Copy `.env.example` to `.env`, replace `DJANGO_SECRET_KEY`, then run `docker compose up --build`. The app is served on port 8080 through Nginx. Set `DJANGO_DEBUG=0`, a production secret and production `DJANGO_ALLOWED_HOSTS` before deployment; TLS termination and secure-cookie settings should be configured at the production edge.

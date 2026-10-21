@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0f2e28">
   <meta name="view-transition" content="same-origin">
   <title>{% block title %}GeM Bid Workspace{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=5">
   {% block head_extra %}{% endblock %}
 </head>
 <body>
@@ -26,7 +26,7 @@
           <nav class="site-navigation" id="site-nav" aria-label="Main navigation">
             <a class="site-nav-link{% if url_name == 'bid-dashboard' or url_name == 'bid-link-list' or url_name == 'bid-prepare' or url_name == 'generated-document-edit' or url_name == 'generated-document-view' or url_name == 'generated-document-preview' or url_name == 'generated-document-delete' %} is-active{% endif %}" href="{% url 'bid-dashboard' %}"{% if url_name == 'bid-dashboard' %} aria-current="page"{% endif %}>Bids</a>
             <a class="site-nav-link{% if url_name == 'company-profile' or url_name == 'company-signature-view' or url_name == 'company-stamp-view' or url_name == 'company-document-view' %} is-active{% endif %}" href="{% url 'company-profile' %}"{% if url_name == 'company-profile' %} aria-current="page"{% endif %}>Company profile</a>
-            {% if request.user.is_staff %}<a class="site-nav-link" href="/admin/">Admin</a>{% endif %}
+            {% if request.user.is_staff %}<a class="site-nav-link" href="{% url 'admin:index' %}">Admin</a>{% endif %}
             <span class="site-user">
               <span class="site-user-avatar" aria-hidden="true">{{ request.user.get_username|slice:":1"|upper }}</span>
               <span class="site-user-name">{{ request.user.get_full_name|default:request.user.get_username }}</span>
@@ -57,7 +57,7 @@
         <nav class="footer-links" aria-label="Footer navigation">
           <a href="{% url 'bid-dashboard' %}">Bids</a>
           <a href="{% url 'company-profile' %}">Company profile</a>
-          {% if request.user.is_staff %}<a href="/admin/">Admin</a>{% endif %}
+          {% if request.user.is_staff %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
         </nav>
         {% endif %}
         <p class="footer-note">&copy; {% now "Y" %} GeM Bid Workspace</p>
@@ -84,6 +84,7 @@
       });
     })();
   </script>
+  <script src="{% static 'js/section_controls.js' %}?v=2" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -11,7 +11,7 @@
         <h1>{{ bid.title|default:bid }}</h1>
         <p class="muted">{{ bid.bid_number|default:"GeM bid" }} · Download status updates automatically while files are processing</p>
       </div>
-      <a class="admin-link" href="/">Back to bids</a>
+      <a class="admin-link" href="{% url 'bid-dashboard' %}">Back to bids</a>
     </header>
 
     <section class="card">
