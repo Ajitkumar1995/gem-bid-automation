@@ -5,6 +5,14 @@ GENERATED_SIGNATURE_CHOICES = [
     ("experience_declaration", "Experience Criteria"),
     ("past_performance", "Past Performance"),
     ("bidder_turnover", "Bidder Turnover"),
+    ("msme_turnover_exemption", "MSME Turnover Exemption Declaration"),
+    ("undertaking", "Undertaking"),
+    ("declaration", "Declaration"),
+    ("authorization_letter", "Authorization Letter"),
+    ("technical_compliance", "Technical Compliance Statement"),
+    ("non_blacklisting_declaration", "Non-Blacklisting Declaration"),
+    ("turnover_declaration", "Turnover Declaration"),
+    ("mse_startup_declaration", "MSE / Startup Declaration"),
     ("additional_doc_1", "Additional Document 1"),
     ("additional_doc_2", "Additional Document 2"),
     ("atc_certificate", "ATC Certificate"),
@@ -37,6 +45,7 @@ class CompanyProfileForm(forms.ModelForm):
             "stamp_position_x",
             "stamp_position_y",
             "signature_document_types",
+            "stamp_document_types",
         )
         widgets = {"address": forms.Textarea(attrs={"rows": 3}), "professional_experience_summary": forms.Textarea(attrs={"rows": 3})}
 
@@ -66,6 +75,7 @@ class CompanySignatureForm(forms.ModelForm):
     stamp_position_y = forms.DecimalField(required=False, min_value=0, max_value=100, widget=forms.HiddenInput())
     signature_style = forms.ChoiceField(choices=[("blue_ink", "Blue ink (sample format)"), ("black_ink", "Black ink")], label="Signature ink format")
     signature_document_types = forms.MultipleChoiceField(choices=GENERATED_SIGNATURE_CHOICES, required=False, label="Use this signature on generated PDFs", widget=forms.CheckboxSelectMultiple)
+    stamp_document_types = forms.MultipleChoiceField(choices=GENERATED_SIGNATURE_CHOICES, required=False, label="Use this stamp on generated PDFs", widget=forms.CheckboxSelectMultiple)
 
     class Meta:
         model = CompanyProfile
@@ -98,7 +108,32 @@ class CompanySignatureForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["signature_document_types"].initial = getattr(self.instance, "signature_document_types", None) or [key for key, _ in GENERATED_SIGNATURE_CHOICES]
+        choices = list(GENERATED_SIGNATURE_CHOICES)
+        owner_id = getattr(self.instance, "owner_id", None)
+        if owner_id:
+            from apps.generation.models import GeneratedDocument
+
+            custom_documents = (
+                GeneratedDocument.objects.filter(
+                    bid__uploaded_by_id=owner_id,
+                    document_type__startswith="custom_",
+                )
+                .select_related("bid")
+                .order_by("title", "bid_id", "id")
+            )
+            for document in custom_documents:
+                bid_label = document.bid.bid_number or document.bid.title or f"Bid {document.bid_id}"
+                choices.append((document.document_type, f"{document.title} — {bid_label}"))
+        self.fields["signature_document_types"].choices = choices
+        self.fields["stamp_document_types"].choices = choices
+        self.fields["signature_document_types"].initial = getattr(self.instance, "signature_document_types", None) or []
+        self.fields["stamp_document_types"].initial = getattr(self.instance, "stamp_document_types", None) or []
+        signature_choices = list(self["signature_document_types"])
+        stamp_choices = list(self["stamp_document_types"])
+        self.document_mark_rows = [
+            (signature.choice_label, signature, stamp)
+            for signature, stamp in zip(signature_choices, stamp_choices)
+        ]
 
     def clean_signature_image(self):
         image = self.cleaned_data.get("signature_image")

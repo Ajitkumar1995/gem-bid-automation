@@ -77,12 +77,12 @@ def _suggested_prep(bid):
 
 def _store_generated_pdf(row, profile, prep, document_type, title, content):
     if content is None:
-        content = editable_document_text(profile, prep, document_type, title)
+        content = row.editable_content or editable_document_text(profile, prep, document_type, title)
     elif row.template_version != EDITABLE_TEMPLATE_VERSION:
         if row.template_version == "1.4":
             content = add_current_signatory_date(content)
             content = _letterhead_for_legacy_content(profile, prep, title, content)
-        elif row.template_version in {"1.5", "1.6", "1.7", "1.8", "1.9", "2.0", "2.1", "2.2", "2.3"}:
+        elif row.template_version in {"1.5", "1.6", "1.7", "1.8", "1.9", "2.0", "2.1", "2.2", "2.3", "2.4"}:
             content = _letterhead_for_legacy_content(profile, prep, title, content)
         else:
             # Older records stored only the declaration body. Upgrade them
@@ -131,6 +131,7 @@ def prepare_bid(request, bid_id):
         "buyer_name": suggestions.buyer_name,
         "buyer_department": suggestions.buyer_department,
         "buyer_address": suggestions.buyer_address,
+        "beneficiary_details": suggestions.beneficiary_details,
         "bid_date": suggestions.bid_date,
         "required_experience_years": suggestions.required_experience_years,
         "bidder_turnover_threshold": suggestions.bidder_turnover_threshold,
@@ -173,8 +174,22 @@ def prepare_bid(request, bid_id):
                     return redirect("company-profile")
                 if document_type not in dict(DOCUMENTS):
                     return HttpResponseBadRequest("Unsupported document type.")
-                row, _ = GeneratedDocument.objects.get_or_create(bid=bid, document_type=document_type, defaults={"title": dict(DOCUMENTS)[document_type], "generated_by": request.user})
-                _store_generated_pdf(row, profile, prep, document_type, dict(DOCUMENTS)[document_type], None)
+                row, created = GeneratedDocument.objects.get_or_create(
+                    bid=bid,
+                    document_type=document_type,
+                    defaults={"title": dict(DOCUMENTS)[document_type], "generated_by": request.user},
+                )
+                # Regeneration must use the saved editable draft. Only build
+                # from the current default when this PDF has no saved text.
+                saved_content = None if created else (row.editable_content or None)
+                _store_generated_pdf(
+                    row,
+                    profile,
+                    prep,
+                    document_type,
+                    dict(DOCUMENTS)[document_type],
+                    saved_content,
+                )
                 messages.success(request, f"{row.title} is ready to edit or download.")
                 return redirect("generated-document-edit", document_id=row.pk)
             if action == "create_custom":
@@ -260,16 +275,18 @@ def edit_generated_document(request, document_id):
         _store_generated_pdf(document, profile, document.bid.preparation, document.document_type, document.title, document.editable_content or None)
     signature_enabled = bool(
         profile
-        and (
-            document.document_type in (profile.signature_document_types or [])
-            or document.document_type.startswith("custom_")
-        )
+        and document.document_type in (profile.signature_document_types or [])
+    )
+    stamp_enabled = bool(
+        profile
+        and document.document_type in (profile.stamp_document_types or [])
     )
     positions = _document_positions(profile, document) if profile else {}
     return render(request, "generation/edit_document.html", {
         "document": document,
         "max_editable_content_length": MAX_EDITABLE_CONTENT_LENGTH,
         "signature_enabled": signature_enabled,
+        "stamp_enabled": stamp_enabled,
         "profile_updated_at": int(profile.updated_at.timestamp() * 1_000_000) if profile else 0,
         "mark_positions": positions,
     })

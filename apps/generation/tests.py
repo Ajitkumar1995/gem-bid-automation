@@ -22,6 +22,7 @@ from apps.processing.models import ProcessingJob
 from services.documents.downloader import DownloadedFile
 from .boq_extraction import extract_boq_tables, extracted_boq_tables, import_boq_tables
 from .forms import CustomDocumentForm
+from .extraction import suggested_preparation_values
 from .models import BidPreparation, BidBOQItem, GeneratedDocument
 from .services.pdf_documents import DOCUMENTS, build_document
 from apps.bids.tasks import process_linked_document
@@ -210,6 +211,80 @@ class EditableGeneratedDocumentTests(TestCase):
         self.assertNotIn("Example Networks", output)
         self.assertIn("Authorized Signatory", output)
         self.assertIn("Company Seal and Stamp", output)
+
+    def test_msme_turnover_exemption_template_is_registered_and_uses_profile_details(self):
+        self.profile.enterprise_type = CompanyProfile.EnterpriseType.MICRO
+        self.profile.udyam_number = "UDYAM-BR-01-0001234"
+        self.profile.save(update_fields=["enterprise_type", "udyam_number"])
+
+        title, editable_text, pdf = build_document(
+            self.profile,
+            self.prep,
+            "msme_turnover_exemption",
+        )
+        output = self.pdf_text(pdf)
+
+        self.assertEqual(title, "MSME Turnover Exemption Declaration")
+        self.assertIn("MSME Turnover Exemption Declaration", editable_text)
+        self.assertIn("UDYAM-BR-01-0001234", editable_text)
+        self.assertIn("minimum average annual turnover requirement", output)
+        self.assertIn("UDYAM-BR-01-0001234", output)
+        self.assertIn("Signature:", output)
+
+    def test_first_page_department_then_organization_are_rendered_dynamically(self):
+        first_page_text = (
+            "Buyer Organisation Name: Defence Laboratory\n"
+            "Buyer Department Name: Department of Defence Research & Development\n\n"
+            "To: Office Of Dg ( Ns & M)\n"
+            "Department Of Defence Research & Development\n"
+            "Ministry of Defence\n\n"
+            "Bid End Date: 30/12/2026"
+        )
+        self.bid.extracted_text = (
+            first_page_text
+            + "\n\nBuyer Organisation Name: Wrong value from a later page"
+        )
+        self.bid.extracted_metadata = {"first_page_text": first_page_text}
+        self.bid.save(update_fields=["extracted_text", "extracted_metadata"])
+
+        suggested = suggested_preparation_values(self.bid)
+        self.prep.beneficiary_details = suggested["beneficiary_details"]
+        self.prep.buyer_department = suggested["buyer_department"]
+        self.prep.buyer_name = suggested["buyer_name"]
+        self.prep.save(update_fields=["beneficiary_details", "buyer_department", "buyer_name"])
+        _title, editable_text, pdf = build_document(
+            self.profile,
+            self.prep,
+            "experience_declaration",
+        )
+        output = self.pdf_text(pdf)
+
+        self.assertEqual(
+            self.prep.beneficiary_details,
+            "Office Of Dg ( Ns & M)\nDepartment Of Defence Research & Development\nMinistry of Defence",
+        )
+        self.assertIn("To: Department of Defence Research & Development", editable_text)
+        self.assertIn("Defence Laboratory", editable_text)
+        self.assertIn("Department of Defence Research & Development", output)
+        self.assertIn("Defence Laboratory", output)
+        self.assertLess(
+            editable_text.index("Department of Defence Research & Development"),
+            editable_text.index("Defence Laboratory"),
+        )
+        self.assertNotIn("Ministry of Defence", editable_text)
+        self.assertNotIn("Office Of Dg", editable_text)
+        self.assertNotIn("Wrong value from a later page", editable_text)
+        for document_type, _label in DOCUMENTS:
+            with self.subTest(document_type=document_type):
+                _title, content, generated_pdf = build_document(
+                    self.profile,
+                    self.prep,
+                    document_type,
+                )
+                self.assertIn("To: Department of Defence Research & Development", content)
+                self.assertIn("Defence Laboratory", content)
+                self.assertIn("Department of Defence Research & Development", self.pdf_text(generated_pdf))
+                self.assertIn("Defence Laboratory", self.pdf_text(generated_pdf))
 
     def test_source_pdf_filename_lines_are_removed_from_every_generated_template(self):
         source_line = "Source: Past_Performance_GEM_2026_B_7968723_UPDATED.pdf"
@@ -427,7 +502,6 @@ class EditableGeneratedDocumentTests(TestCase):
             "COMPLIANCE TO BOQ SPECIFICATIONS",
             "Example Buyer",
             "1. Compliance with BoQ Specifications",
-            "Extracted BoQ details and bidder response",
             "Network switch",
             "24 port managed",
             "Complied",
@@ -436,6 +510,8 @@ class EditableGeneratedDocumentTests(TestCase):
             with self.subTest(content=content):
                 self.assertIn(content, editable_content)
                 self.assertIn(content, normalized_pdf_output)
+        self.assertNotIn("Extracted BoQ details and bidder response", editable_content)
+        self.assertNotIn("Extracted BoQ details and bidder response", normalized_pdf_output)
 
         saved_document = GeneratedDocument.objects.create(
             bid=self.bid,
@@ -460,7 +536,8 @@ class EditableGeneratedDocumentTests(TestCase):
         )
         self.assertEqual(saved_response.status_code, 200)
         saved_document.refresh_from_db()
-        self.assertEqual(saved_document.template_version, "2.4")
+        self.assertEqual(saved_document.template_version, "2.5")
+        self.assertNotIn("Extracted BoQ details and bidder response", saved_document.editable_content)
         self.assertEqual(saved_document.editable_content.count("Source BoQ table:"), 1)
         self.assertIn("Bill of quantities", saved_document.editable_content)
         self.assertIn("Technical Specifications", saved_document.editable_content)
@@ -479,6 +556,7 @@ class EditableGeneratedDocumentTests(TestCase):
         self.assertIn("Bill of quantities", self.pdf_text(saved_response.content))
         self.assertIn("Bidder Response", self.pdf_text(saved_response.content))
         self.assertIn("Complied", self.pdf_text(saved_response.content))
+        self.assertNotIn("Extracted BoQ details and bidder response", self.pdf_text(saved_response.content))
 
     def test_stamp_rotation_and_size_are_applied_to_generated_pdf(self):
         image_data = io.BytesIO()
@@ -561,6 +639,7 @@ class EditableGeneratedDocumentTests(TestCase):
             "stamp_rotation": "90",
             "stamp_scale": "1.5",
             "signature_document_types": ["experience_declaration"],
+            "stamp_document_types": ["experience_declaration"],
         })
 
         self.assertRedirects(response, "/companies/profile/")
@@ -630,7 +709,7 @@ class EditableGeneratedDocumentTests(TestCase):
             signature_rect = pdf[0].get_image_rects(signature_xref)[0]
             page_width = pdf[0].rect.width
         actual_center_x = (signature_rect.x0 + signature_rect.x1) / 2
-        expected_center_x = 20 * 72 / 25.4 + 6 + (170 - 12 * 25.4 / 72) * 0.28 * 72 / 25.4
+        expected_center_x = 20 * 72 / 25.4 + 6 + signature_rect.width / 2
         self.assertAlmostEqual(actual_center_x, expected_center_x, delta=2)
 
         with Image.open(io.BytesIO(signature_image["image"])) as rendered_signature:
@@ -707,7 +786,11 @@ class EditableGeneratedDocumentTests(TestCase):
                     blue_pixels = sum(blue > red + 40 and blue > green + 40 for red, green, blue, alpha in pixels if alpha)
                     key = "stamp" if red_pixels > blue_pixels else "signature"
                     rect = pdf[0].get_image_rects(xref)[0]
-                    centers[key] = ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
+                    centers[key] = {
+                        "center": ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2),
+                        "width": rect.width,
+                        "height": rect.height,
+                    }
             return centers
 
         mark_content = "Signature:"
@@ -718,10 +801,12 @@ class EditableGeneratedDocumentTests(TestCase):
             mark_content,
         )
         initial = image_centers(initial_pdf)
+        old_x = {"signature": float(self.profile.signature_position_x), "stamp": float(self.profile.stamp_position_x)}
+        old_y = {"signature": float(self.profile.signature_position_y), "stamp": float(self.profile.stamp_position_y)}
         with pymupdf.open(stream=initial_pdf, filetype="pdf") as pdf:
             page_center_x = pdf[0].rect.width / 2
-        self.assertLess(initial["signature"][0], initial["stamp"][0])
-        self.assertGreater(initial["stamp"][0], page_center_x)
+        self.assertLess(initial["signature"]["center"][0], initial["stamp"]["center"][0])
+        self.assertGreater(initial["stamp"]["center"][0], page_center_x)
 
         self.profile.signature_position_x = "54.25"
         self.profile.signature_position_y = "38.50"
@@ -742,13 +827,21 @@ class EditableGeneratedDocumentTests(TestCase):
         moved = image_centers(moved_pdf)
 
         points_per_mm = 72 / 25.4
-        for mark, initial_x, initial_y, new_x, new_y in (
-            ("signature", 0, 50, 54.25, 38.50),
-            ("stamp", 77, 50, 31.75, 62.25),
+        area_width = 170 * points_per_mm - 12
+        area_height = 30 * points_per_mm * max(float(self.profile.signature_scale), float(self.profile.stamp_scale), 1)
+
+        def delta(area, size, before, after):
+            low, high = size / 2, area - size / 2
+            old_center = min(max(before / 100 * area, low), high)
+            new_center = min(max(after / 100 * area, low), high)
+            return new_center - old_center
+
+        for mark, new_x, new_y in (
+            ("signature", 54.25, 38.50),
+            ("stamp", 31.75, 62.25),
         ):
-            printable_width_mm = 170 - 12 / points_per_mm
-            self.assertAlmostEqual(moved[mark][0] - initial[mark][0], (new_x - initial_x) * printable_width_mm * points_per_mm / 100, delta=1)
-            self.assertAlmostEqual(moved[mark][1] - initial[mark][1], (new_y - initial_y) * 30 * points_per_mm / 100, delta=1)
+            self.assertAlmostEqual(moved[mark]["center"][0] - initial[mark]["center"][0], delta(area_width, initial[mark]["width"], old_x[mark], new_x), delta=1)
+            self.assertAlmostEqual(moved[mark]["center"][1] - initial[mark]["center"][1], delta(area_height, initial[mark]["height"], old_y[mark], new_y), delta=1)
 
     def test_live_editor_positions_are_saved_per_document_and_used_in_pdf(self):
         signature_data = io.BytesIO()
@@ -1036,6 +1129,35 @@ class EditableGeneratedDocumentTests(TestCase):
         self.assertFalse(custom_form.fields["title"].required)
         self.assertFalse(custom_form.fields["content"].required)
 
+    def test_regenerating_builtin_document_preserves_saved_template_edits(self):
+        self.client.force_login(self.user)
+        document = GeneratedDocument.objects.create(
+            bid=self.bid,
+            document_type="experience_declaration",
+            title="Experience Declaration",
+            editable_content=(
+                "EXPERIENCE DECLARATION\n\n"
+                "Saved declaration body that the user edited.\n\n"
+                "Signature:"
+            ),
+            template_version="2.5",
+            generated_by=self.user,
+        )
+
+        response = self.client.post(reverse("bid-prepare", args=[self.bid.pk]), {
+            "action": "generate:experience_declaration",
+            "boq-TOTAL_FORMS": "0",
+            "boq-INITIAL_FORMS": "0",
+            "boq-MIN_NUM_FORMS": "0",
+            "boq-MAX_NUM_FORMS": "1000",
+        })
+
+        self.assertRedirects(response, reverse("generated-document-edit", args=[document.pk]))
+        document.refresh_from_db()
+        self.assertIn("Saved declaration body that the user edited.", document.editable_content)
+        pdf = self.client.get(reverse("generated-document-view", args=[document.pk]))
+        self.assertIn("Saved declaration body that the user edited.", self.pdf_text(pdf.content))
+
     def test_custom_pdf_can_be_deleted_and_legacy_file_is_cleaned_up(self):
         document = GeneratedDocument.objects.create(
             bid=self.bid,
@@ -1136,7 +1258,7 @@ class EditableGeneratedDocumentTests(TestCase):
         self.assertIn("Company Seal and Stamp", pdf_text)
         self.assertNotIn("Bid: GEM/2026/B/1234567", pdf_text)
         document.refresh_from_db()
-        self.assertEqual(document.template_version, "2.4")
+        self.assertEqual(document.template_version, "2.5")
         self.assertIn("M/S EXAMPLE NETWORKS", document.editable_content)
         self.assertIn("Company Seal and Stamp", document.editable_content)
         self.assertEqual(document.editable_content.count("Authorized Signatory"), 1)
@@ -1187,7 +1309,7 @@ class EditableGeneratedDocumentTests(TestCase):
         self.assertIn("Authorized Signatory", pdf_text)
         self.assertEqual(pdf_text.count("Authorized Signatory"), 1)
         document.refresh_from_db()
-        self.assertEqual(document.template_version, "2.4")
+        self.assertEqual(document.template_version, "2.5")
         self.assertNotIn("PAN:", document.editable_content)
         self.assertIn("Company Seal and Stamp", document.editable_content)
         self.assertEqual(document.editable_content.count("Authorized Signatory"), 1)

@@ -14,10 +14,16 @@ class BidPreparationForm(forms.ModelForm):
 
     class Meta:
         model = BidPreparation
-        exclude = ("bid", "updated_at")
+        exclude = ("bid", "updated_at", "recipient_title")
         widgets = {
-            "buyer_address": forms.Textarea(attrs={"rows": 2}), "payment_note": forms.Textarea(attrs={"rows": 2}),
+            "buyer_address": forms.Textarea(attrs={"rows": 2}),
+            "beneficiary_details": forms.Textarea(attrs={"rows": 4}),
+            "payment_note": forms.Textarea(attrs={"rows": 2}),
             "bid_date": forms.DateInput(attrs={"type": "date"}), "invoice_address": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {"beneficiary_details": "To / Beneficiary details"}
+        help_texts = {
+            "beneficiary_details": "Extracted from the uploaded bid PDF. Review and edit these recipient details before generating documents."
         }
 
 

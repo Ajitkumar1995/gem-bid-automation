@@ -4,7 +4,28 @@ from django.db import models
 
 
 def default_signature_document_types():
-    return ["experience_declaration", "past_performance", "bidder_turnover", "additional_doc_1", "additional_doc_2", "atc_certificate", "boq_specifications", "oem_annual_turnover"]
+    return [
+        "experience_declaration",
+        "past_performance",
+        "bidder_turnover",
+        "msme_turnover_exemption",
+        "undertaking",
+        "declaration",
+        "authorization_letter",
+        "technical_compliance",
+        "non_blacklisting_declaration",
+        "turnover_declaration",
+        "mse_startup_declaration",
+        "additional_doc_1",
+        "additional_doc_2",
+        "atc_certificate",
+        "boq_specifications",
+        "oem_annual_turnover",
+    ]
+
+
+def default_stamp_document_types():
+    return default_signature_document_types()
 
 
 class CompanyProfile(models.Model):
@@ -41,6 +62,7 @@ class CompanyProfile(models.Model):
     stamp_position_x = models.DecimalField(max_digits=5, decimal_places=2, default=77, validators=[MinValueValidator(0), MaxValueValidator(100)])
     stamp_position_y = models.DecimalField(max_digits=5, decimal_places=2, default=50, validators=[MinValueValidator(0), MaxValueValidator(100)])
     signature_document_types = models.JSONField(default=default_signature_document_types, blank=True)
+    stamp_document_types = models.JSONField(default=default_stamp_document_types, blank=True)
     is_msme = models.BooleanField(default=False)
     enterprise_type = models.CharField(max_length=12, choices=EnterpriseType.choices, default=EnterpriseType.OTHER)
     is_startup = models.BooleanField(default=False)

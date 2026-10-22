@@ -39,10 +39,15 @@ class CompanySignatureEditorTests(TestCase):
         self.assertContains(response, 'id="stamp-canvas" width="560" height="300"')
         self.assertContains(response, 'max="90"')
         self.assertContains(response, 'min="-90"')
-        self.assertContains(response, "Use saved signature on these generated PDFs")
+        self.assertContains(response, "Add saved signature and stamp to these PDFs")
+        self.assertContains(response, "MSME Turnover Exemption Declaration")
+        self.assertContains(response, 'name="signature_document_types" value="msme_turnover_exemption"')
+        self.assertContains(response, 'name="stamp_document_types" value="msme_turnover_exemption"')
+        self.assertContains(response, "Add signature")
+        self.assertContains(response, "Add stamp")
         self.assertContains(response, "Optional company stamp / seal")
         page = response.content.decode()
-        general_profile_form = page.split('<section class="card signature-card">', 1)[0]
+        general_profile_form = page.split('<input type="hidden" name="form_action" value="profile">', 1)[1].split('</form>', 1)[0]
         self.assertNotIn("stamp_rotation", general_profile_form)
         self.assertNotIn("stamp_scale", general_profile_form)
         self.assertEqual(page.count('name="stamp_rotation"'), 1)
@@ -274,10 +279,23 @@ class CompanySignatureEditorTests(TestCase):
                     blue_pixels = sum(blue > red + 40 and blue > green + 40 for red, green, blue, alpha in pixels if alpha)
                     mark = "stamp" if red_pixels > blue_pixels else "signature"
                     rect = pdf[0].get_image_rects(xref)[0]
-                    result[mark] = ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
+                    result[mark] = {
+                        "center": ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2),
+                        "width": rect.width,
+                        "height": rect.height,
+                    }
             return result
 
-        initial = centers(self_attested_pdf(document, self.profile))
+        initial_pdf = self_attested_pdf(document, self.profile)
+        initial = centers(initial_pdf)
+        initial_x = {
+            "signature": float(self.profile.signature_position_x),
+            "stamp": float(self.profile.stamp_position_x),
+        }
+        initial_y = {
+            "signature": float(self.profile.signature_position_y),
+            "stamp": float(self.profile.stamp_position_y),
+        }
         self.profile.signature_position_x = "54.25"
         self.profile.signature_position_y = "38.50"
         self.profile.stamp_position_x = "31.75"
@@ -285,13 +303,31 @@ class CompanySignatureEditorTests(TestCase):
         self.profile.save()
         moved = centers(self_attested_pdf(document, self.profile))
 
-        points_per_mm = 72 / 25.4
-        for mark, initial_x, initial_y, new_x, new_y in (
-            ("signature", 28, 50, 54.25, 38.50),
-            ("stamp", 50, 50, 31.75, 62.25),
+        def clamped_delta(area, mark_size, old_position, new_position):
+            low, high = mark_size / 2, area - mark_size / 2
+            old_center = min(max(old_position / 100 * area, low), high)
+            new_center = min(max(new_position / 100 * area, low), high)
+            return new_center - old_center
+
+        with pymupdf.open(stream=initial_pdf, filetype="pdf") as pdf:
+            area_width = pdf[0].rect.width - 40 * mm
+        area_height = 30 * mm * max(
+            float(self.profile.signature_scale), float(self.profile.stamp_scale), 1
+        )
+        for mark, old_x, old_y, new_x, new_y in (
+            ("signature", initial_x["signature"], initial_y["signature"], 54.25, 38.50),
+            ("stamp", initial_x["stamp"], initial_y["stamp"], 31.75, 62.25),
         ):
-            self.assertAlmostEqual(moved[mark][0] - initial[mark][0], (new_x - initial_x) * 170 * points_per_mm / 100, delta=1)
-            self.assertAlmostEqual(moved[mark][1] - initial[mark][1], (new_y - initial_y) * 30 * points_per_mm / 100, delta=1)
+            self.assertAlmostEqual(
+                moved[mark]["center"][0] - initial[mark]["center"][0],
+                clamped_delta(area_width, initial[mark]["width"], old_x, new_x),
+                delta=1,
+            )
+            self.assertAlmostEqual(
+                moved[mark]["center"][1] - initial[mark]["center"][1],
+                clamped_delta(area_height, initial[mark]["height"], old_y, new_y),
+                delta=1,
+            )
 
     def test_supporting_document_signature_and_stamp_choices_are_independent(self):
         self.profile = CompanyProfile.objects.create(owner=self.user)

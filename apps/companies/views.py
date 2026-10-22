@@ -54,6 +54,7 @@ def company_profile(request):
                 new_stamp_upload = bool(request.FILES.get("stamp_image"))
                 profile = signature_form.save(commit=False)
                 profile.signature_document_types = signature_form.cleaned_data["signature_document_types"]
+                profile.stamp_document_types = signature_form.cleaned_data["stamp_document_types"]
                 if remove_signature and not new_upload:
                     profile.signature_image = ""
                 if remove_stamp and not new_stamp_upload:
@@ -78,9 +79,9 @@ def company_profile(request):
                     _store_generated_pdf(generated, profile, preparation, generated.document_type, generated.title, generated.editable_content or None)
                     refreshed += 1
                 if refreshed:
-                    messages.success(request, f"Signature saved. Refreshed {refreshed} generated PDF(s) with the current signature.")
+                    messages.success(request, f"Signature and stamp settings saved. Refreshed {refreshed} generated PDF(s).")
                 else:
-                    messages.success(request, "Signature saved to the company profile. New PDFs will use it automatically.")
+                    messages.success(request, "Signature and stamp settings saved to the company profile.")
                 return redirect("company-profile")
         elif form_action in {"document_signature", "document_marks"}:
             document = get_object_or_404(CompanyDocument, pk=request.POST.get("document_id"), company__owner=request.user)

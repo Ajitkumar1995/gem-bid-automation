@@ -119,6 +119,7 @@ def extract_bid_pdf(self, bid_id):
             metadata = dict(document.metadata or {})
         extracted_text = "\n\n".join(page_text)
         if extracted_text.strip():
+            metadata["first_page_text"] = page_text[0] if page_text else ""
             profile = CompanyProfile.objects.filter(owner=bid.uploaded_by).first()
             analysis = analyze_requirements(extracted_text)
             metadata["requirements_analysis"] = build_requirements_metadata(extracted_text, profile)

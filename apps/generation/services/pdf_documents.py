@@ -25,6 +25,7 @@ DOCUMENTS = [
     ("experience_declaration", "Experience Declaration"),
     ("past_performance", "Past Performance / MSME Relaxation"),
     ("bidder_turnover", "Bidder Turnover Declaration"),
+    ("msme_turnover_exemption", "MSME Turnover Exemption Declaration"),
     ("undertaking", "Undertaking"),
     ("declaration", "Declaration"),
     ("authorization_letter", "Authorization Letter"),
@@ -40,7 +41,7 @@ DOCUMENTS = [
 ]
 
 DOCUMENTS_DICT = dict(DOCUMENTS)
-EDITABLE_TEMPLATE_VERSION = "2.4"
+EDITABLE_TEMPLATE_VERSION = "2.5"
 
 
 def add_current_signatory_date(content: str) -> str:
@@ -310,6 +311,18 @@ def remove_source_pdf_filename_lines(content: str) -> str:
     )
 
 
+def _recipient_line(prep) -> str:
+    """Render the first-page department followed by its organization name."""
+    department = (getattr(prep, "buyer_department", "") or "").strip()
+    organization = (getattr(prep, "buyer_name", "") or "").strip()
+    details = "\n".join(value for value in (department, organization) if value)
+    if not details:
+        details = (getattr(prep, "beneficiary_details", "") or "").strip()
+        if details:
+            details = re.sub(r"^To\s*:\s*", "", details, flags=re.IGNORECASE)
+    return f"To: {details}" if details else "To:"
+
+
 def _body(profile, prep, document_type: str) -> str:
     """Generate document body content from template."""
     bid_number = prep.bid_number or prep.bid.bid_number or "Bid number not recorded"
@@ -320,7 +333,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "experience_declaration":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Experience criteria declaration – {bid_number}",
             f"Bid experience requirement recorded for reference: {prep.required_experience_years} year(s)." if prep.required_experience_years is not None else "Verify the experience requirement in the bid before signing.",
             f"Bidder-provided company profile statement: {experience}",
@@ -329,7 +342,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "past_performance":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Past performance / MSME relaxation request – {bid_number}",
             f"The company profile records Udyam number {profile.udyam_number or 'not provided'} and enterprise category {profile.get_enterprise_type_display()}.",
             "The bidder requests consideration for any MSME relaxation from past performance or prior experience criteria only where this bid permits it and the bidder meets all applicable conditions. Attach current registration and any required performance records. This request does not establish eligibility.",
@@ -337,16 +350,33 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "bidder_turnover":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Bidder turnover requirement – {bid_number}",
             f"Bidder turnover threshold recorded for reference: INR {prep.bidder_turnover_threshold} (verify the financial period and calculation basis against the bid)." if prep.bidder_turnover_threshold is not None else "Verify the bidder turnover threshold and financial period in the bid.",
             f"The company profile records Udyam number {profile.udyam_number or 'not provided'} and enterprise category {profile.get_enterprise_type_display()}.",
             "Where this bid permits MSME turnover relaxation, the bidder requests consideration subject to its eligibility and supporting evidence. No turnover amount is certified here. ITR total income is not represented as turnover; provide the financial evidence required by the bid.",
         ])
 
+    if document_type == "msme_turnover_exemption":
+        enterprise_type = profile.get_enterprise_type_display()
+        return "\n\n".join([
+            _recipient_line(prep),
+            f"Subject: MSME Turnover Exemption Declaration – {bid_number}",
+            (
+                f"We, {profile.legal_name or profile.trade_name or '[Company Legal Name]'}, declare that our enterprise is registered as an MSME under Udyam Registration Number {profile.udyam_number or '[Udyam Registration Number]'} and is classified as {enterprise_type}."
+            ),
+            (
+                f"We request exemption from the minimum average annual turnover requirement for this bid, to the extent permitted by the applicable GeM terms and the bid conditions. The turnover threshold recorded for this bid is INR {prep.bidder_turnover_threshold}."
+                if prep.bidder_turnover_threshold is not None
+                else "We request exemption from the minimum average annual turnover requirement for this bid, to the extent permitted by the applicable GeM terms and the bid conditions."
+            ),
+            "We confirm that the Udyam registration and enterprise classification are valid on the bid submission date. We understand that this declaration does not waive any other eligibility, experience, technical, or documentary requirement unless the bid expressly permits it.",
+            "We will provide the current Udyam certificate and any other supporting documents required by the buyer for verification.",
+        ])
+
     if document_type == "undertaking":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Undertaking – {bid_number}",
             "We hereby undertake that:",
             "1. We have read and understood all terms and conditions of the bid document.",
@@ -360,7 +390,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "declaration":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Declaration of Eligibility and Compliance – {bid_number}",
             "We hereby declare that:",
             "1. Our company is legally constituted and validly existing under the laws of India.",
@@ -377,7 +407,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "authorization_letter":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Authorization Letter – {bid_number}",
             f"We, {profile.legal_name or '[Company Legal Name]'}, hereby authorize Mr./Ms. {profile.signatory_name or '[Authorized Signatory Name]'},",
             f"designated as {profile.signatory_designation or '[Designation]'}, to:",
@@ -393,7 +423,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "technical_compliance":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Technical Compliance Statement – {bid_number}",
             "We confirm that our offered products/services fully comply with the technical specifications",
             "and requirements specified in the bid document. Any deviations are listed below:",
@@ -407,7 +437,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "non_blacklisting_declaration":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Non-Blacklisting Declaration – {bid_number}",
             f"We, {profile.legal_name or '[Company Legal Name]'}, hereby declare that:",
             "",
@@ -424,7 +454,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "turnover_declaration":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Turnover Declaration – {bid_number}",
             f"Bidder turnover threshold: INR {prep.bidder_turnover_threshold if prep.bidder_turnover_threshold is not None else 'Not specified'} (verify against bid).",
             "",
@@ -441,7 +471,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "mse_startup_declaration":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: MSE / Startup Declaration – {bid_number}",
             f"Enterprise Status: {'MSME (Udyam: ' + profile.udyam_number + ')' if profile.udyam_number else 'Not registered as MSME'}",
             f"Startup Recognition: {profile.startup_recognition_number or 'Not recognized as Startup'}",
@@ -483,7 +513,7 @@ def _body(profile, prep, document_type: str) -> str:
 
     if document_type == "boq_specifications":
         return "\n\n".join([
-            f"To: {prep.recipient_title or 'The Buyer'}{', ' + prep.buyer_name if prep.buyer_name else ''}",
+            _recipient_line(prep),
             f"Subject: Compliance to BoQ Specifications – {bid_number}",
             (
                 f"We, M/S {profile.legal_name or profile.trade_name or '[Company Legal Name]'}, submit this "
@@ -560,6 +590,20 @@ def ensure_source_boq_tables(content: str, prep, document_type: str) -> str:
     """Include fetched source tables once in BoQ compliance documents."""
     if document_type != "boq_specifications":
         return content
+    # Older saved drafts contained a second, generated response table after
+    # the source table. Remove only that table block while retaining any user
+    # text that follows it.
+    lines = content.splitlines()
+    legacy_heading = "Extracted BoQ details and bidder response"
+    for index, line in enumerate(lines):
+        if line.strip() != legacy_heading:
+            continue
+        end = index + 1
+        while end < len(lines) and lines[end].strip() and "|" in lines[end]:
+            end += 1
+        del lines[index:end]
+        content = "\n".join(lines)
+        break
     sections = _source_boq_table_sections(prep)
     if "Source BoQ table:" in content:
         if not sections:
@@ -597,22 +641,22 @@ def ensure_source_boq_tables(content: str, prep, document_type: str) -> str:
 def editable_document_text(profile, prep, document_type: str, title: str, body: Optional[str] = None) -> str:
     """Build the complete editable text shown in the editor and rendered to PDF."""
     bid_number = prep.bid_number or prep.bid.bid_number or "Bid number not recorded"
+    document_body = body if body is not None else _body(profile, prep, document_type)
+    if not re.search(r"(?im)^\s*To\s*:", document_body):
+        document_body = f"{_recipient_line(prep)}\n\n{document_body}"
     sections = [
         _letterhead(profile, prep, title),
-        body if body is not None else _body(profile, prep, document_type),
+        document_body,
     ]
 
-    if document_type in ("additional_doc_1", "boq_specifications"):
-        if document_type == "boq_specifications":
-            source_tables = _source_boq_table_sections(prep)
-            if source_tables:
-                sections.extend(["Bill of quantities", *source_tables])
+    if document_type == "boq_specifications":
+        source_tables = _source_boq_table_sections(prep)
+        if source_tables:
+            sections.extend(["Bill of quantities", *source_tables])
+
+    if document_type == "additional_doc_1":
         rows = [
-            (
-                "Extracted BoQ details and bidder response"
-                if document_type == "boq_specifications"
-                else "BoQ item responses"
-            ),
+            "BoQ item responses",
             "Item / requirement | Quantity | Unit",
         ]
         items = list(prep.boq_items.all())
@@ -693,7 +737,8 @@ def render_document_pdf(profile, prep, document_type: str, title: str, content: 
     paragraph_lines = []
     title_rendered = False
     letterhead_rendered = False
-    signature_enabled = document_type in (profile.signature_document_types or []) or document_type.startswith("custom_")
+    signature_enabled = document_type in (profile.signature_document_types or [])
+    stamp_enabled = document_type in (profile.stamp_document_types or [])
 
     def flush_paragraph():
         nonlocal letterhead_rendered, title_rendered
@@ -861,7 +906,7 @@ def render_document_pdf(profile, prep, document_type: str, title: str, content: 
             flush_paragraph()
             story.append(Paragraph(_e(stripped), styles["SignatureLabel"]))
             signature_data = styled_signature(profile) if signature_enabled and profile.signature_image else b""
-            stamp_data = stamp_image_bytes(profile) if signature_enabled and profile.stamp_image else b""
+            stamp_data = stamp_image_bytes(profile) if stamp_enabled and profile.stamp_image else b""
             if stamp_data or signature_data:
                 story.append(SignatureStampBlock(
                     stamp_data,

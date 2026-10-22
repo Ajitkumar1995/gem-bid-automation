@@ -45,7 +45,15 @@
         <label for="id_stamp_scale">Stamp size <output id="stamp-scale-output">{{ signature_form.stamp_scale.value|default:1 }}×</output>{{ signature_form.stamp_scale }}</label>{{ signature_form.stamp_scale.errors }}
         <div class="clear-signature">{{ signature_form.clear_stamp }}{{ signature_form.clear_stamp.label_tag }}{{ signature_form.clear_stamp.errors }}</div>
       </fieldset>
-      <fieldset class="signature-document-options"><legend>Use saved signature on these generated PDFs</legend>{{ signature_form.signature_document_types }}{{ signature_form.signature_document_types.errors }}</fieldset>
+      <fieldset class="signature-document-options"><legend>Add saved signature and stamp to these PDFs</legend>
+        <p class="footnote">Choose independently whether each PDF includes your saved signature, stamp, both, or neither.</p>
+        {{ signature_form.signature_document_types.errors }}{{ signature_form.stamp_document_types.errors }}
+        <div class="table-wrap"><table class="pdf-mark-table"><thead><tr><th>PDF</th><th>Add signature</th><th>Add stamp</th></tr></thead><tbody>
+          {% for label, signature_checkbox, stamp_checkbox in signature_form.document_mark_rows %}
+          <tr><td>{{ label }}</td><td>{{ signature_checkbox.tag }}</td><td>{{ stamp_checkbox.tag }}</td></tr>
+          {% endfor %}
+        </tbody></table></div>
+      </fieldset>
       <button type="submit">Save signature and PDF choices</button>
     </form>
   </section>

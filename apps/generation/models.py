@@ -10,6 +10,7 @@ class BidPreparation(models.Model):
     buyer_name = models.CharField(max_length=255, blank=True)
     buyer_department = models.CharField(max_length=255, blank=True)
     buyer_address = models.TextField(blank=True)
+    beneficiary_details = models.TextField(blank=True)
     recipient_title = models.CharField(max_length=120, default="The Head of Department", blank=True)
     bid_date = models.DateField(null=True, blank=True)
     required_experience_years = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -59,6 +60,7 @@ class GeneratedDocument(models.Model):
     signature_position_y = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(100)])
     stamp_position_x = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(100)])
     stamp_position_y = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(100)])
+    render_settings = models.JSONField(default=dict, blank=True)
     # Legacy generated files are retained for cleanup during bid retention.
     file = models.FileField(upload_to="generated/%Y/%m/", max_length=500, blank=True)
     template_version = models.CharField(max_length=20, default="1.0")

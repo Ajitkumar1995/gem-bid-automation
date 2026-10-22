@@ -15,6 +15,7 @@ PREPARATION_FIELDS = (
     "buyer_name",
     "buyer_department",
     "buyer_address",
+    "beneficiary_details",
     "bid_date",
     "required_experience_years",
     "bidder_turnover_threshold",
@@ -76,13 +77,51 @@ def _as_integer(value):
         return None
 
 
+def _beneficiary_details(text):
+    """Extract the To/beneficiary block printed in the uploaded bid PDF."""
+    lines = [re.sub(r"\s+", " ", line).strip() for line in (text or "").splitlines()]
+    for index, line in enumerate(lines):
+        match = re.match(
+            r"(?:(?:लाभार्थी\s*/\s*)?Beneficiary(?:\s+Details?)?|To(?=\s*[:：-]|\s*$))\s*[:：-]?\s*(.*)$",
+            line,
+            re.I,
+        )
+        if not match:
+            continue
+        details = []
+        first = match.group(1).strip()
+        if first:
+            details.append(first)
+        for next_line in lines[index + 1:]:
+            if not next_line:
+                if details:
+                    break
+                continue
+            if re.match(
+                r"^(?!To\s*:)(?!(?:Department|Office|Organisation|Organization|Address|Director|Ministry|City|State|PIN)\s*:)[A-Za-z][A-Za-z0-9 /()&.-]{1,50}\s*:",
+                next_line,
+                re.I,
+            ):
+                break
+            details.append(next_line)
+            if len(details) >= 8:
+                break
+        value = "\n".join(details).strip()
+        value = re.sub(r"^To\s*:\s*", "", value, flags=re.I)
+        if value:
+            return value[:4000]
+    return ""
+
+
 def suggested_preparation_values(bid):
     """Build normalized bid/buyer defaults from PDF text and local analysis."""
     text = bid.extracted_text or ""
-    analysis = (bid.extracted_metadata or {}).get("requirements_analysis", {}).get("bid_analysis", {})
+    metadata = bid.extracted_metadata or {}
+    first_page_text = metadata.get("first_page_text") or text
+    analysis = metadata.get("requirements_analysis", {}).get("bid_analysis", {})
     lines = [
         re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f]+", "", line)).strip()
-        for line in text.splitlines()
+        for line in first_page_text.splitlines()
         if line.strip()
     ]
 
@@ -94,13 +133,14 @@ def suggested_preparation_values(bid):
     bid_title = analysis.get("item_name") or analysis.get("title") or bid.title or ""
     if not bid_title:
         bid_title = _label_value(lines, r"(?:BOQ\s+Title|Item\s+Category|Bid\s+Title)")
-    buyer_name = analysis.get("buyer_name") or analysis.get("organization") or ""
+    buyer_name = _label_value(lines, r"(?:Buyer\s+)?(?:Organisation|Organization|Office)\s+Name")
     if not buyer_name:
-        buyer_name = _label_value(lines, r"(?:Buyer\s+)?(?:Organisation|Organization|Office)\s+Name")
-    buyer_department = analysis.get("buyer_department") or analysis.get("department") or ""
+        buyer_name = analysis.get("buyer_name") or analysis.get("organization") or ""
+    buyer_department = _label_value(lines, r"(?:Buyer\s+)?Department\s+Name")
     if not buyer_department:
-        buyer_department = _label_value(lines, r"(?:Buyer\s+)?Department\s+Name")
+        buyer_department = analysis.get("buyer_department") or analysis.get("department") or ""
     buyer_address = analysis.get("buyer_address") or _label_value(lines, r"Buyer\s+Address")
+    beneficiary_details = _beneficiary_details(first_page_text)
 
     experience = re.search(r"Years of Past Experience Required.*?\n\s*(\d+)\s*Year", text, re.I | re.S)
     bidder_turnover = re.search(
@@ -117,6 +157,7 @@ def suggested_preparation_values(bid):
         "buyer_name": str(buyer_name)[:255] if buyer_name else "",
         "buyer_department": str(buyer_department)[:255] if buyer_department else "",
         "buyer_address": str(buyer_address)[:4000] if buyer_address else "",
+        "beneficiary_details": beneficiary_details,
         "bid_date": _as_date(analysis.get("bid_date")),
         "required_experience_years": _as_integer(exp_value),
         "bidder_turnover_threshold": _as_decimal(bidder_value),
