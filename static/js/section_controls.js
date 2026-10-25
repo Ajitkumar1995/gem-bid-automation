@@ -17,12 +17,15 @@
     button.type = "button";
     button.className = "card-section-toggle";
     button.setAttribute("aria-controls", panel.id);
-    button.setAttribute("aria-expanded", "true");
+    const initiallyExpanded = card.dataset.startCollapsed !== "true";
+    button.setAttribute("aria-expanded", initiallyExpanded ? "true" : "false");
     button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m5.5 7.5 4.5 4.5 4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const sectionTitle = title.textContent.trim();
-    button.setAttribute("aria-label", `Collapse ${sectionTitle}`);
-    button.title = `Collapse ${sectionTitle}`;
+    const initialAction = initiallyExpanded ? "Collapse" : "Expand";
+    button.setAttribute("aria-label", `${initialAction} ${sectionTitle}`);
+    button.title = `${initialAction} ${sectionTitle}`;
     heading.append(button);
+    panel.hidden = !initiallyExpanded;
     card.append(panel);
 
     button.addEventListener("click", () => {

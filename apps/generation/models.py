@@ -51,6 +51,21 @@ class BidBOQItem(models.Model):
         return self.description
 
 
+class CustomDocumentTemplate(models.Model):
+    """A reusable custom PDF template owned by one user."""
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="custom_document_templates")
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["title", "id"]
+
+    def __str__(self):
+        return self.title
+
+
 class GeneratedDocument(models.Model):
     bid = models.ForeignKey("bids.Bid", on_delete=models.CASCADE, related_name="generated_documents")
     document_type = models.CharField(max_length=60)

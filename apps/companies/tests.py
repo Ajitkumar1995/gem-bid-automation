@@ -47,6 +47,7 @@ class CompanySignatureEditorTests(TestCase):
         self.assertContains(response, "Add stamp")
         self.assertContains(response, "Optional company stamp / seal")
         page = response.content.decode()
+        self.assertEqual(page.count('data-start-collapsed="true"'), 3)
         general_profile_form = page.split('<input type="hidden" name="form_action" value="profile">', 1)[1].split('</form>', 1)[0]
         self.assertNotIn("stamp_rotation", general_profile_form)
         self.assertNotIn("stamp_scale", general_profile_form)

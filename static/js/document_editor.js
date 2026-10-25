@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const spinner = document.getElementById("preview-spinner");
   const markCanvas = document.getElementById("document-mark-canvas");
   const markContext = markCanvas?.getContext("2d");
+  const addSignatureStamp = form?.querySelector('[name="add_signature_stamp"]');
   const markFields = {
     signature: {
       x: document.getElementById("document-signature-x"),
@@ -34,6 +35,7 @@ document.addEventListener("DOMContentLoaded", () => {
         payload.append(y.name, y.value);
       }
     });
+    if (addSignatureStamp) payload.append(addSignatureStamp.name, addSignatureStamp.checked ? addSignatureStamp.value : "");
     spinner.textContent = "Rendering preview…";
     status.textContent = "Updating PDF preview…";
     try {
@@ -55,6 +57,10 @@ document.addEventListener("DOMContentLoaded", () => {
   field.addEventListener("input", () => {
     clearTimeout(timer);
     timer = setTimeout(renderPreview, 450);
+  });
+  addSignatureStamp?.addEventListener("change", () => {
+    clearTimeout(timer);
+    timer = setTimeout(renderPreview, 100);
   });
   const drawMarkPositions = () => {
     if (!markCanvas || !markContext) return;

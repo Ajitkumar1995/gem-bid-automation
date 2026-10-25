@@ -1,20 +1,21 @@
 import copy
+import re
 from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.text import slugify
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
-from uuid import uuid4
 
 from apps.bids.models import Bid
 from apps.companies.models import CompanyProfile
 from services.requirements import build_requirements_metadata
 from .forms import BidBOQFormSet, BidPreparationForm, CustomDocumentForm
-from .models import BidPreparation, GeneratedDocument
+from .models import BidPreparation, CustomDocumentTemplate, GeneratedDocument
 from .boq_extraction import extracted_boq_tables, import_cached_linked_boq_tables
 from .extraction import suggested_preparation_values, sync_missing_preparation_fields
 from .services.pdf_documents import (
@@ -71,8 +72,53 @@ def _profile_with_positions(profile, positions):
     return positioned_profile
 
 
+def _document_mark_setting(document, submitted=None):
+    if submitted is not None:
+        return submitted
+    settings = document.render_settings or {}
+    if "include_signature_stamp" in settings:
+        return bool(settings["include_signature_stamp"])
+    return document.document_type.startswith("custom_")
+
+
+def _profile_with_document_marks(profile, document, include_marks):
+    """Apply this document's mark choice without changing the company profile."""
+    positioned_profile = copy.copy(profile)
+    if document.document_type.startswith("custom_"):
+        for field in ("signature_document_types", "stamp_document_types"):
+            enabled_types = list(getattr(profile, field) or [])
+            if include_marks and document.document_type not in enabled_types:
+                enabled_types.append(document.document_type)
+            elif not include_marks:
+                enabled_types = [item for item in enabled_types if item != document.document_type]
+            setattr(positioned_profile, field, enabled_types)
+    return positioned_profile
+
+
 def _suggested_prep(bid):
     return BidPreparation(bid=bid, **suggested_preparation_values(bid))
+
+
+def _render_custom_template(template, profile, prep, document_type):
+    """Fill supported per-bid tokens before applying the standard PDF header."""
+    from .services.pdf_documents import _recipient_line
+
+    bid_number = prep.bid_number or prep.bid.bid_number or "Bid number not recorded"
+    values = {
+        "to": _recipient_line(prep).removeprefix("To: ").strip(),
+        "bid_number": bid_number,
+        "bid_title": prep.bid_title or prep.bid.title or "",
+        "buyer_name": prep.buyer_name or "",
+        "buyer_department": prep.buyer_department or "",
+        "company_name": profile.legal_name or profile.trade_name or "",
+        "signatory_name": profile.signatory_name or "",
+        "date": timezone.localdate().strftime("%d %B %Y"),
+    }
+    content = template.content
+    for key, value in values.items():
+        content = content.replace("{{" + key + "}}", value).replace("{{ " + key + " }}", value)
+    content = re.sub(r"(?im)^\s*To\s*:.*$", _recipient_line(prep), content, count=1)
+    return editable_document_text(profile, prep, document_type, template.title, body=content)
 
 
 def _store_generated_pdf(row, profile, prep, document_type, title, content):
@@ -192,6 +238,29 @@ def prepare_bid(request, bid_id):
                 )
                 messages.success(request, f"{row.title} is ready to edit or download.")
                 return redirect("generated-document-edit", document_id=row.pk)
+            if action.startswith("template:"):
+                template_id = action.split(":", 1)[1]
+                template = get_object_or_404(CustomDocumentTemplate, pk=template_id, owner=request.user)
+                if not _profile_is_complete(profile):
+                    messages.error(request, "Complete the company legal name, address, and authorized signatory in Company Profile before generating PDFs.")
+                    return redirect("company-profile")
+                document_type = f"custom_template_{template.pk}"
+                row, created = GeneratedDocument.objects.get_or_create(
+                    bid=bid,
+                    document_type=document_type,
+                    defaults={
+                        "title": template.title,
+                        "generated_by": request.user,
+                        "template_version": EDITABLE_TEMPLATE_VERSION,
+                    },
+                )
+                saved_content = None if created else (row.editable_content or None)
+                if saved_content is None:
+                    # Reuse the same letterhead and recipient handling as built-in PDFs.
+                    saved_content = _render_custom_template(template, profile, prep, document_type)
+                _store_generated_pdf(row, profile, prep, document_type, template.title, saved_content)
+                messages.success(request, f"{row.title} is ready to edit or download.")
+                return redirect("generated-document-edit", document_id=row.pk)
             if action == "create_custom":
                 if not _profile_is_complete(profile):
                     messages.error(request, "Complete the company legal name, address, and authorized signatory in Company Profile before generating PDFs.")
@@ -201,13 +270,16 @@ def prepare_bid(request, bid_id):
                 if not title or not content:
                     custom_document_form.add_error(None, "Enter both a title and document text.")
                 else:
-                    document_type = f"custom_{uuid4().hex}"
+                    template = CustomDocumentTemplate.objects.create(owner=request.user, title=title, content=content)
+                    document_type = f"custom_template_{template.pk}"
                     row = GeneratedDocument.objects.create(
                         bid=bid,
                         document_type=document_type,
                         title=title,
                         generated_by=request.user,
+                        template_version=EDITABLE_TEMPLATE_VERSION,
                     )
+                    content = _render_custom_template(template, profile, prep, document_type)
                     _store_generated_pdf(row, profile, prep, document_type, title, content)
                     messages.success(request, f"{row.title} is ready to edit or download.")
                     return redirect("generated-document-edit", document_id=row.pk)
@@ -225,12 +297,22 @@ def prepare_bid(request, bid_id):
         for item in requirements_analysis.get("required_documents", [])
         if item.get("is_required", True)
     }
-    document_rows = [(key, label, generated_by_type.get(key)) for key, label in DOCUMENTS]
+    document_rows = [(key, label, generated_by_type.get(key), f"generate:{key}") for key, label in DOCUMENTS]
     document_rows.extend(
-        (document.document_type, document.title, document)
+        (document.document_type, document.title, document, f"generate:{document.document_type}")
         for document in generated
         if document.document_type.startswith("custom_")
     )
+    custom_templates = CustomDocumentTemplate.objects.filter(owner=request.user)
+    for template in custom_templates:
+        document_type = f"custom_template_{template.pk}"
+        if document_type not in generated_by_type:
+            document_rows.append((document_type, template.title, None, f"template:{template.pk}"))
+        else:
+            document_rows = [
+                (doc_type, label, document, f"template:{template.pk}" if doc_type == document_type else action_value)
+                for doc_type, label, document, action_value in document_rows
+            ]
     return render(request, "generation/prepare.html", {
         "bid": bid,
         "profile": profile,
@@ -263,6 +345,10 @@ def edit_generated_document(request, document_id):
             return HttpResponseBadRequest(str(exc))
         for field, value in positions.items():
             setattr(document, field, value)
+        if document.document_type.startswith("custom_"):
+            render_settings = dict(document.render_settings or {})
+            render_settings["include_signature_stamp"] = request.POST.get("add_signature_stamp") == "on"
+            document.render_settings = render_settings
         _store_generated_pdf(document, profile, document.bid.preparation, document.document_type, document.title, content)
         if request.POST.get("download_after_save") == "1":
             return redirect(f"{reverse('generated-document-view', args=[document.pk])}?download=1")
@@ -273,13 +359,22 @@ def edit_generated_document(request, document_id):
     if document.template_version != EDITABLE_TEMPLATE_VERSION:
         profile = profile or get_object_or_404(CompanyProfile, owner=request.user)
         _store_generated_pdf(document, profile, document.bid.preparation, document.document_type, document.title, document.editable_content or None)
+    include_signature_stamp = _document_mark_setting(document)
     signature_enabled = bool(
         profile
-        and document.document_type in (profile.signature_document_types or [])
+        and (include_signature_stamp or not document.document_type.startswith("custom_"))
+        and (
+            document.document_type.startswith("custom_")
+            or document.document_type in (profile.signature_document_types or [])
+        )
     )
     stamp_enabled = bool(
         profile
-        and document.document_type in (profile.stamp_document_types or [])
+        and (include_signature_stamp or not document.document_type.startswith("custom_"))
+        and (
+            document.document_type.startswith("custom_")
+            or document.document_type in (profile.stamp_document_types or [])
+        )
     )
     positions = _document_positions(profile, document) if profile else {}
     return render(request, "generation/edit_document.html", {
@@ -287,6 +382,8 @@ def edit_generated_document(request, document_id):
         "max_editable_content_length": MAX_EDITABLE_CONTENT_LENGTH,
         "signature_enabled": signature_enabled,
         "stamp_enabled": stamp_enabled,
+        "include_signature_stamp": include_signature_stamp,
+        "is_custom_document": document.document_type.startswith("custom_"),
         "profile_updated_at": int(profile.updated_at.timestamp() * 1_000_000) if profile else 0,
         "mark_positions": positions,
     })
@@ -307,8 +404,12 @@ def preview_generated_document(request, document_id):
         positions = _document_positions(profile, document, request.POST)
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
+    include_marks = _document_mark_setting(
+        document,
+        request.POST.get("add_signature_stamp") == "on" if document.document_type.startswith("custom_") else None,
+    )
     _title, _content, pdf = build_document(
-        _profile_with_positions(profile, positions),
+        _profile_with_document_marks(_profile_with_positions(profile, positions), document, include_marks),
         document.bid.preparation,
         document.document_type,
         content,
@@ -370,8 +471,9 @@ def view_generated_document(request, document_id):
         response["Cache-Control"] = "private, no-store"
         return response
     positions = _document_positions(profile, doc)
+    include_marks = _document_mark_setting(doc)
     _title, _content, pdf = build_document(
-        _profile_with_positions(profile, positions),
+        _profile_with_document_marks(_profile_with_positions(profile, positions), doc, include_marks),
         doc.bid.preparation,
         doc.document_type,
         doc.editable_content or None,

@@ -44,7 +44,7 @@ class CustomDocumentForm(forms.Form):
         max_length=100000,
         label="Document template text",
         widget=forms.Textarea(attrs={"rows": 12}),
-        help_text="Enter the unique document text. Bid, buyer, and company details are added from this bid's preparation and company profile.",
+        help_text="This text is saved as your reusable template. Optional dynamic tokens: {{to}}, {{bid_number}}, {{bid_title}}, {{buyer_name}}, {{buyer_department}}, {{company_name}}, {{signatory_name}}, and {{date}}.",
         required=False,
     )
 

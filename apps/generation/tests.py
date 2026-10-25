@@ -23,7 +23,7 @@ from services.documents.downloader import DownloadedFile
 from .boq_extraction import extract_boq_tables, extracted_boq_tables, import_boq_tables
 from .forms import CustomDocumentForm
 from .extraction import suggested_preparation_values
-from .models import BidPreparation, BidBOQItem, GeneratedDocument
+from .models import BidPreparation, BidBOQItem, CustomDocumentTemplate, GeneratedDocument
 from .services.pdf_documents import DOCUMENTS, build_document
 from apps.bids.tasks import process_linked_document
 
@@ -1112,6 +1112,88 @@ class EditableGeneratedDocumentTests(TestCase):
         self.assertEqual(live_preview["Content-Type"], "application/pdf")
         self.assertEqual(live_preview["X-Frame-Options"], "SAMEORIGIN")
         self.assertIn("Live preview content", self.pdf_text(live_preview.content))
+
+    def test_custom_template_reuse_dynamic_bid_details_and_saved_mark_checkbox(self):
+        self.client.force_login(self.user)
+        image_buffer = io.BytesIO()
+        Image.new("RGB", (48, 24), "blue").save(image_buffer, format="PNG")
+        image_content = ContentFile(image_buffer.getvalue())
+        self.profile.signature_image.save("saved-signature.png", image_content, save=False)
+        self.profile.stamp_image.save("saved-stamp.png", ContentFile(image_buffer.getvalue()), save=False)
+        self.profile.save()
+        create_response = self.client.post(reverse("bid-prepare", args=[self.bid.pk]), {
+            "action": "create_custom",
+            "title": "Reusable Bid Undertaking",
+            "content": "To: Old Buyer\n\nSubject: Undertaking for {{bid_number}}",
+            "boq-TOTAL_FORMS": "0",
+            "boq-INITIAL_FORMS": "0",
+            "boq-MIN_NUM_FORMS": "0",
+            "boq-MAX_NUM_FORMS": "1000",
+        })
+        self.assertEqual(create_response.status_code, 302)
+        template = CustomDocumentTemplate.objects.get(owner=self.user, title="Reusable Bid Undertaking")
+        document = GeneratedDocument.objects.get(bid=self.bid, document_type=f"custom_template_{template.pk}")
+        self.assertEqual(document.editable_content.count("M/S EXAMPLE NETWORKS"), 1)
+
+        editor = self.client.get(reverse("generated-document-edit", args=[document.pk]))
+        self.assertContains(editor, 'name="add_signature_stamp" value="on" checked')
+        signed_pdf_response = self.client.get(reverse("generated-document-view", args=[document.pk]))
+        signed_pdf = pymupdf.open(stream=signed_pdf_response.content, filetype="pdf")
+        self.assertGreaterEqual(len(signed_pdf[0].get_images(full=True)), 2)
+        signed_pdf.close()
+        save_response = self.client.post(reverse("generated-document-edit", args=[document.pk]), {
+            "editable_content": document.editable_content,
+            "signature_position_x": "0",
+            "signature_position_y": "50",
+            "stamp_position_x": "77",
+            "stamp_position_y": "50",
+        })
+        self.assertEqual(save_response.status_code, 302)
+        document.refresh_from_db()
+        self.assertFalse(document.render_settings["include_signature_stamp"])
+        unsigned_pdf_response = self.client.get(reverse("generated-document-view", args=[document.pk]))
+        unsigned_pdf = pymupdf.open(stream=unsigned_pdf_response.content, filetype="pdf")
+        self.assertEqual(len(unsigned_pdf[0].get_images(full=True)), 0)
+        unsigned_pdf.close()
+        editor = self.client.get(reverse("generated-document-edit", args=[document.pk]))
+        self.assertContains(editor, 'name="add_signature_stamp" value="on">')
+        self.assertNotContains(editor, 'name="add_signature_stamp" value="on" checked')
+
+        other_bid = Bid.objects.create(
+            uploaded_by=self.user,
+            source_pdf=SimpleUploadedFile("other-bid.pdf", b"%PDF-1.4\\nminimal other bid", content_type="application/pdf"),
+            bid_number="GEM/2026/B/7654321",
+            title="Second bid",
+        )
+        BidPreparation.objects.create(
+            bid=other_bid,
+            bid_number=other_bid.bid_number,
+            bid_title=other_bid.title,
+            buyer_name="Current Buyer",
+            buyer_department="Operations Department",
+        )
+        prepare_page = self.client.get(reverse("bid-prepare", args=[other_bid.pk]))
+        self.assertContains(prepare_page, "Reusable Bid Undertaking")
+        self.assertContains(prepare_page, 'data-start-collapsed="true"')
+        self.assertContains(prepare_page, "Bill of quantities")
+        use_response = self.client.post(reverse("bid-prepare", args=[other_bid.pk]), {
+            "action": f"template:{template.pk}",
+            "bid_number": other_bid.bid_number,
+            "bid_title": other_bid.title,
+            "buyer_name": "Current Buyer",
+            "buyer_department": "Operations Department",
+            "boq-TOTAL_FORMS": "0",
+            "boq-INITIAL_FORMS": "0",
+            "boq-MIN_NUM_FORMS": "0",
+            "boq-MAX_NUM_FORMS": "1000",
+        })
+        second_document = GeneratedDocument.objects.get(bid=other_bid, document_type=f"custom_template_{template.pk}")
+        self.assertEqual(use_response.status_code, 302)
+        self.assertEqual(second_document.editable_content.count("M/S EXAMPLE NETWORKS"), 1)
+        self.assertIn("GEM/2026/B/7654321", second_document.editable_content)
+        self.assertIn("Current Buyer", second_document.editable_content)
+        self.assertIn("Operations Department", second_document.editable_content)
+        self.assertTrue(second_document.render_settings.get("include_signature_stamp", True))
 
     def test_builtin_generate_action_does_not_require_custom_template_fields(self):
         self.client.force_login(self.user)
