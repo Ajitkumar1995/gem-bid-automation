@@ -1,3 +1,5 @@
+import json
+
 from django import forms
 from django.forms import inlineformset_factory
 from .models import BidBOQItem, BidPreparation
@@ -28,14 +30,38 @@ class BidPreparationForm(forms.ModelForm):
 
 
 class BidBOQItemForm(forms.ModelForm):
+    source_data = forms.CharField(required=False, widget=forms.HiddenInput())
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not self.instance.bidder_response:
             self.initial["bidder_response"] = "Complied"
+        if not self.is_bound:
+            self.initial["source_data"] = json.dumps(self.instance.source_data or {}, ensure_ascii=False)
+
+    def clean_source_data(self):
+        raw_value = self.cleaned_data.get("source_data", "").strip()
+        if not raw_value:
+            return self.instance.source_data or {}
+        try:
+            value = json.loads(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise forms.ValidationError("BoQ source columns contain invalid data. Please review the row and try again.") from exc
+        if not isinstance(value, dict) or len(value) > 100:
+            raise forms.ValidationError("A BoQ row can contain up to 100 source columns.")
+        cleaned = {}
+        for header, cell in value.items():
+            header = str(header).strip()
+            if not header or len(header) > 120:
+                raise forms.ValidationError("BoQ column names must contain 1 to 120 characters.")
+            if isinstance(cell, (dict, list)):
+                raise forms.ValidationError("BoQ cells must contain plain text values.")
+            cleaned[header] = str("" if cell is None else cell)[:2000]
+        return cleaned
 
     class Meta:
         model = BidBOQItem
-        fields = ("sort_order", "description", "quantity", "unit", "bidder_response")
+        fields = ("sort_order", "description", "quantity", "unit", "bidder_response", "source_data")
 
 
 class CustomDocumentForm(forms.Form):

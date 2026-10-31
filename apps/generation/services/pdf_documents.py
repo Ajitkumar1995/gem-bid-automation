@@ -18,6 +18,7 @@ from reportlab.platypus import (
 )
 from django.utils import timezone
 from apps.companies.signatures import stamp_image_bytes, styled_signature
+from apps.generation.boq_extraction import editable_source_values, source_field_for_header
 
 
 # Document type definitions - ALL documents that can be generated
@@ -296,13 +297,6 @@ def _table_cell(value) -> str:
     return str(value if value is not None else "—").replace("|", "/").replace("\n", " ").strip() or "—"
 
 
-def _source_value(source_data, header_pattern, fallback):
-    return next(
-        (value for header, value in source_data.items() if re.search(header_pattern, header, re.IGNORECASE)),
-        fallback,
-    )
-
-
 def remove_source_pdf_filename_lines(content: str) -> str:
     """Remove standalone source labels that expose an uploaded PDF filename."""
     return "\n".join(
@@ -555,13 +549,11 @@ def _body(profile, prep, document_type: str) -> str:
 def _source_boq_table_sections(prep) -> list[str]:
     groups = {}
     for item in prep.boq_items.order_by("sort_order", "id"):
-        if not item.source_data:
-            continue
         group = groups.setdefault(
-            item.source_label or "Extracted bid BoQ",
+            item.source_label or "Bidder-entered BoQ",
             {"headers": [], "items": []},
         )
-        for header in item.source_data:
+        for header in (item.source_data or {}):
             if header not in group["headers"]:
                 group["headers"].append(header)
         group["items"].append(item)
@@ -569,19 +561,27 @@ def _source_boq_table_sections(prep) -> list[str]:
     sections = []
     for source_label, group in groups.items():
         headers = group["headers"]
+        has_response_column = any(source_field_for_header(header) == "bidder_response" for header in headers)
+        core_columns = [
+            ("description", "Description"),
+            ("quantity", "Quantity"),
+            ("unit", "Unit"),
+        ]
+        for field_name, label in core_columns:
+            if not any(source_field_for_header(header) == field_name for header in headers):
+                headers.append(label)
         if not headers:
             continue
         rows = [
             f"Source BoQ table: {_table_cell(source_label)}",
-            " | ".join([*(_table_cell(header) for header in headers), "Bidder Response"]),
+            " | ".join([*(_table_cell(header) for header in headers), *([] if has_response_column else ["Bidder Response"])]),
         ]
-        rows.extend(
-            " | ".join([
-                *(_table_cell(item.source_data.get(header, "")) for header in headers),
-                item.bidder_response or "Complied",
-            ])
-            for item in group["items"]
-        )
+        for item in group["items"]:
+            values = editable_source_values(item, headers)
+            rows.append(" | ".join([
+                *(_table_cell(value) for value in values),
+                *([] if has_response_column else [item.bidder_response or "Complied"]),
+            ]))
         sections.append("\n".join(rows))
     return sections
 
@@ -678,11 +678,7 @@ def editable_document_text(profile, prep, document_type: str, title: str, body: 
         if items:
             for item in items:
                 response = item.bidder_response or "Complied"
-                quantity = _source_value(
-                    item.source_data,
-                    r"\b(qty|quantity|nos|number of units|required quantity)\b",
-                    item.quantity,
-                )
+                quantity = item.quantity
                 values = [item.description, quantity, item.unit]
                 extra_details = "; ".join(
                     f"{header}: {item.source_data[header]}"

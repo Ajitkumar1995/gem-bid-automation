@@ -1,23 +1,42 @@
 (() => {
-  document.querySelectorAll(".card[data-collapsible]").forEach((card, index) => {
-    const title = Array.from(card.children).find((child) => /^H[1-6]$/.test(child.tagName));
+  document.querySelectorAll("[data-collapsible]").forEach((card, index) => {
+    const isFieldset = card.tagName === "FIELDSET";
+    const title = isFieldset
+      ? Array.from(card.children).find((child) => child.tagName === "LEGEND")
+      : Array.from(card.children).find((child) => /^H[1-6]$/.test(child.tagName));
     if (!title) return;
 
     const panel = document.createElement("div");
     panel.className = "card-section-content";
     panel.id = `card-section-content-${index + 1}`;
+    let initiallyExpanded = card.dataset.startCollapsed !== "true";
+    const preferenceKey = card.dataset.collapseKey;
+    if (preferenceKey) {
+      try {
+        const savedPreference = window.localStorage.getItem(`gem-workspace:section:${preferenceKey}`);
+        if (savedPreference === "expanded") initiallyExpanded = true;
+        else if (savedPreference === "collapsed") initiallyExpanded = false;
+      } catch (_error) {
+        // Keep the configured default if browser storage is unavailable.
+      }
+    }
+    card.removeAttribute("data-start-collapsed");
     while (title.nextSibling) panel.appendChild(title.nextSibling);
 
-    const heading = document.createElement("div");
-    heading.className = "card-section-heading";
-    card.insertBefore(heading, title);
-    heading.append(title);
+    let heading = title;
+    if (isFieldset) {
+      title.classList.add("collapsible-fieldset-legend");
+    } else {
+      heading = document.createElement("div");
+      heading.className = "card-section-heading";
+      card.insertBefore(heading, title);
+      heading.append(title);
+    }
 
     const button = document.createElement("button");
     button.type = "button";
     button.className = "card-section-toggle";
     button.setAttribute("aria-controls", panel.id);
-    const initiallyExpanded = card.dataset.startCollapsed !== "true";
     button.setAttribute("aria-expanded", initiallyExpanded ? "true" : "false");
     button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m5.5 7.5 4.5 4.5 4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     const sectionTitle = title.textContent.trim();
@@ -35,6 +54,13 @@
       button.setAttribute("aria-label", `${action} ${sectionTitle}`);
       button.title = `${action} ${sectionTitle}`;
       panel.hidden = expanded;
+      if (preferenceKey) {
+        try {
+          window.localStorage.setItem(`gem-workspace:section:${preferenceKey}`, expanded ? "collapsed" : "expanded");
+        } catch (_error) {
+          // The section still works for this page view without browser storage.
+        }
+      }
     });
   });
 })();

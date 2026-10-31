@@ -3,6 +3,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -16,7 +17,12 @@ from apps.companies.models import CompanyProfile
 from services.requirements import build_requirements_metadata
 from .forms import BidBOQFormSet, BidPreparationForm, CustomDocumentForm
 from .models import BidPreparation, CustomDocumentTemplate, GeneratedDocument
-from .boq_extraction import extracted_boq_tables, import_cached_linked_boq_tables
+from .boq_extraction import (
+    extract_default_boq_tables,
+    extracted_boq_tables,
+    import_boq_tables,
+    import_cached_linked_boq_tables,
+)
 from .extraction import suggested_preparation_values, sync_missing_preparation_fields
 from .services.pdf_documents import (
     DOCUMENTS,
@@ -152,6 +158,23 @@ def _store_generated_pdf(row, profile, prep, document_type, title, content):
     return row
 
 
+def _refresh_saved_boq_document(bid, profile, prep):
+    if not profile:
+        return False
+    row = GeneratedDocument.objects.filter(bid=bid, document_type="boq_specifications").first()
+    if row:
+        _store_generated_pdf(
+            row,
+            profile,
+            prep,
+            "boq_specifications",
+            row.title,
+            row.editable_content or None,
+        )
+        return True
+    return False
+
+
 @login_required
 def prepare_bid(request, bid_id):
     bid = Bid.objects.filter(pk=bid_id, uploaded_by=request.user).first()
@@ -206,6 +229,26 @@ def prepare_bid(request, bid_id):
         item_formset = BidBOQFormSet(request.POST, instance=prep, prefix="boq")
         custom_document_form = CustomDocumentForm(request.POST)
         action = request.POST.get("action", "save")
+        if action == "reset_boq":
+            reset_error = False
+            try:
+                default_tables = extract_default_boq_tables(prep)
+            except Exception:
+                default_tables = []
+                reset_error = True
+                messages.error(request, "We could not read the original CSV BoQ file. Your current BoQ has been left unchanged.")
+            if default_tables:
+                with transaction.atomic():
+                    prep.boq_items.all().delete()
+                    import_boq_tables(prep, default_tables)
+                    pdf_refreshed = _refresh_saved_boq_document(bid, profile, prep)
+                if pdf_refreshed:
+                    messages.success(request, "BoQ reset to the original CSV data. Your existing BoQ PDF was refreshed.")
+                else:
+                    messages.success(request, "BoQ reset to the original CSV data. No BoQ PDF existed yet; generate one from Step 3 when ready.")
+            elif not reset_error:
+                messages.error(request, "No downloaded BoQ CSV was found, so your current table was kept unchanged.")
+            return redirect(f"{reverse('bid-prepare', args=[bid.pk])}?step=boq")
         custom_document_valid = action != "create_custom" or custom_document_form.is_valid()
         if prep_form.is_valid() and item_formset.is_valid() and custom_document_valid:
             prep = prep_form.save(commit=False)
@@ -213,6 +256,8 @@ def prepare_bid(request, bid_id):
             prep.save()
             item_formset.instance = prep
             item_formset.save()
+            if action == "save":
+                _refresh_saved_boq_document(bid, profile, prep)
             if action.startswith("generate:"):
                 document_type = action.split(":", 1)[1]
                 if not _profile_is_complete(profile):
@@ -283,7 +328,12 @@ def prepare_bid(request, bid_id):
                     _store_generated_pdf(row, profile, prep, document_type, title, content)
                     messages.success(request, f"{row.title} is ready to edit or download.")
                     return redirect("generated-document-edit", document_id=row.pk)
-            messages.success(request, "Bid details saved. Generate and edit each required PDF below.")
+            if action == "save":
+                messages.success(request, "Bid and BoQ changes saved. Any existing BoQ PDF has been refreshed.")
+            else:
+                messages.success(request, "Bid details saved. Generate and edit each required PDF below.")
+            if request.POST.get("return_step") == "boq":
+                return redirect(f"{reverse('bid-prepare', args=[bid.pk])}?step=boq")
             return redirect("bid-prepare", bid_id=bid.pk)
     else:
         prep_form = BidPreparationForm(instance=prep)

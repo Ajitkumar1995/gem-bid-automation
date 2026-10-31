@@ -20,11 +20,17 @@ from apps.companies.models import CompanyProfile
 from apps.documents.models import LinkedDocument
 from apps.processing.models import ProcessingJob
 from services.documents.downloader import DownloadedFile
-from .boq_extraction import extract_boq_tables, extracted_boq_tables, import_boq_tables
+from .boq_extraction import (
+    editable_source_values,
+    extract_boq_tables,
+    extract_default_boq_tables,
+    extracted_boq_tables,
+    import_boq_tables,
+)
 from .forms import CustomDocumentForm
 from .extraction import suggested_preparation_values
 from .models import BidPreparation, BidBOQItem, CustomDocumentTemplate, GeneratedDocument
-from .services.pdf_documents import DOCUMENTS, build_document
+from .services.pdf_documents import DOCUMENTS, EDITABLE_TEMPLATE_VERSION, build_document
 from apps.bids.tasks import process_linked_document
 
 
@@ -450,6 +456,26 @@ class EditableGeneratedDocumentTests(TestCase):
             "application/octet-stream",
         )
         self.assertEqual(content_sniffed_tables[0]["items"][0]["description"], "Copper cable")
+
+    def test_csv_headers_blank_cells_and_number_format_are_preserved(self):
+        table = extract_boq_tables(
+            b'Item Description,Quantity,Unit,Rate,Remarks\nWidget,"1,000.00",Nos,,\n',
+            "BOQ.csv",
+            "text/csv",
+        )[0]
+        self.assertEqual(
+            list(table["items"][0]["source_data"]),
+            ["Item Description", "Quantity", "Unit", "Rate", "Remarks"],
+        )
+        self.assertEqual(table["items"][0]["source_data"]["Quantity"], "1,000.00")
+        self.assertEqual(table["items"][0]["source_data"]["Rate"], "")
+
+        import_boq_tables(self.prep, [table])
+        item = self.prep.boq_items.get()
+        self.assertEqual(
+            editable_source_values(item, list(table["items"][0]["source_data"])),
+            ["Widget", "1,000.00", "Nos", "", ""],
+        )
 
     @patch("apps.bids.tasks.download_document")
     def test_linked_document_task_imports_downloaded_csv_boq(self, download):
@@ -976,6 +1002,71 @@ class EditableGeneratedDocumentTests(TestCase):
         document.refresh_from_db()
         self.assertEqual(str(document.signature_position_x), "0.00")
 
+    def test_custom_template_uses_company_position_defaults_and_keeps_pdf_override(self):
+        signature_data = io.BytesIO()
+        Image.new("RGB", (100, 40), "blue").save(signature_data, format="PNG")
+        self.profile.signature_image.save("custom-default-signature.png", ContentFile(signature_data.getvalue()), save=True)
+        stamp_data = io.BytesIO()
+        Image.new("RGB", (60, 60), "red").save(stamp_data, format="PNG")
+        self.profile.stamp_image.save("custom-default-stamp.png", ContentFile(stamp_data.getvalue()), save=True)
+        self.profile.signature_position_x = "24.50"
+        self.profile.signature_position_y = "32.25"
+        self.profile.stamp_position_x = "71.75"
+        self.profile.stamp_position_y = "64.00"
+        self.profile.save(update_fields=[
+            "signature_position_x",
+            "signature_position_y",
+            "stamp_position_x",
+            "stamp_position_y",
+        ])
+        document = GeneratedDocument.objects.create(
+            bid=self.bid,
+            document_type="custom_template_999",
+            title="Reusable Custom Template",
+            editable_content="Custom declaration\n\nSignature:",
+            template_version=EDITABLE_TEMPLATE_VERSION,
+            generated_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        editor = self.client.get(reverse("generated-document-edit", args=[document.pk]))
+
+        self.assertContains(editor, 'data-signature-x="24.50"')
+        self.assertContains(editor, 'data-signature-y="32.25"')
+        self.assertContains(editor, 'data-stamp-x="71.75"')
+        self.assertContains(editor, 'data-stamp-y="64.00"')
+        default_pdf = self.client.get(reverse("generated-document-view", args=[document.pk]))
+        self.assertEqual(default_pdf.status_code, 200)
+        with pymupdf.open(stream=default_pdf.content, filetype="pdf") as pdf:
+            self.assertEqual(len(pdf[0].get_images(full=True)), 2)
+            default_centers = sorted(
+                (round(rect.x0 + rect.width / 2, 2), round(rect.y0 + rect.height / 2, 2))
+                for xref, *_rest in pdf[0].get_images(full=True)
+                for rect in pdf[0].get_image_rects(xref)
+            )
+        response = self.client.post(reverse("generated-document-edit", args=[document.pk]), {
+            "editable_content": document.editable_content,
+            "signature_position_x": "18",
+            "signature_position_y": "42",
+            "stamp_position_x": "83",
+            "stamp_position_y": "57",
+            "add_signature_stamp": "on",
+        })
+        self.assertRedirects(response, reverse("generated-document-edit", args=[document.pk]))
+        document.refresh_from_db()
+        self.assertEqual(str(document.signature_position_x), "18.00")
+        self.assertEqual(str(document.signature_position_y), "42.00")
+        self.assertEqual(str(document.stamp_position_x), "83.00")
+        self.assertEqual(str(document.stamp_position_y), "57.00")
+        overridden_pdf = self.client.get(reverse("generated-document-view", args=[document.pk]))
+        with pymupdf.open(stream=overridden_pdf.content, filetype="pdf") as pdf:
+            overridden_centers = sorted(
+                (round(rect.x0 + rect.width / 2, 2), round(rect.y0 + rect.height / 2, 2))
+                for xref, *_rest in pdf[0].get_images(full=True)
+                for rect in pdf[0].get_image_rects(xref)
+            )
+        self.assertNotEqual(default_centers, overridden_centers)
+
     def test_prepare_refreshes_legacy_analysis_and_fills_this_bids_details(self):
         self.bid.status = Bid.Status.READY
         self.bid.extracted_text = (
@@ -1064,6 +1155,111 @@ class EditableGeneratedDocumentTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertRedirects(response, reverse("bid-dashboard"))
         self.assertContains(response, "That bid is no longer available.")
+
+    @patch("apps.generation.views.extract_default_boq_tables")
+    def test_boq_reset_restores_source_rows_and_refreshes_existing_pdf(self, extract_defaults):
+        self.client.force_login(self.user)
+        extract_defaults.return_value = [{
+            "source_label": "BOQ.csv",
+            "items": [{
+                "description": "Default switch",
+                "quantity": "3",
+                "unit": "Each",
+                "bidder_response": "Complied",
+                "source_data": {"Item Description": "Default switch", "Quantity": "3", "Unit": "Each"},
+                "source_row": 2,
+            }],
+        }]
+        BidBOQItem.objects.create(
+            preparation=self.prep,
+            description="Edited custom item",
+            source_data={"Custom column": "Edited value"},
+        )
+        document = GeneratedDocument.objects.create(
+            bid=self.bid,
+            document_type="boq_specifications",
+            title="Compliance to BoQ Specifications",
+            editable_content="Compliance draft\n\nDeclaration\nSigned",
+            generated_by=self.user,
+        )
+
+        response = self.client.post(reverse("bid-prepare", args=[self.bid.pk]), {"action": "reset_boq"})
+
+        self.assertRedirects(response, f"{reverse('bid-prepare', args=[self.bid.pk])}?step=boq")
+        self.assertQuerySetEqual(self.prep.boq_items.values_list("description", flat=True), ["Default switch"])
+        document.refresh_from_db()
+        self.assertIn("Default switch | 3 | Each", document.editable_content)
+        self.assertNotIn("Edited custom item", document.editable_content)
+
+    def test_boq_reset_defaults_read_csv_and_ignore_pdf_sources(self):
+        self.bid.linked_documents.create(
+            url="https://example.test/BOQ.csv",
+            status=LinkedDocument.Status.DOWNLOADED,
+            file_name="BOQ.csv",
+            content_type="text/csv",
+            file=SimpleUploadedFile(
+                "BOQ.csv",
+                b"Description,Quantity,Unit\nDefault cable,4,Meter\n",
+                content_type="text/csv",
+            ),
+        )
+        self.bid.linked_documents.create(
+            url="https://example.test/extra.pdf",
+            status=LinkedDocument.Status.DOWNLOADED,
+            file_name="extra.pdf",
+            content_type="application/pdf",
+            file=SimpleUploadedFile("extra.pdf", b"%PDF-1.4 not a table"),
+        )
+
+        tables = extract_default_boq_tables(self.prep)
+
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(tables[0]["source_label"], "BOQ.csv")
+        self.assertEqual(tables[0]["items"][0]["description"], "Default cable")
+
+    def test_saving_boq_refreshes_existing_generated_boq_document(self):
+        self.client.force_login(self.user)
+        item = BidBOQItem.objects.create(
+            preparation=self.prep,
+            sort_order=0,
+            description="Old item",
+            quantity=1,
+            source_data={"Item Description": "Old item", "Quantity": "1"},
+            source_label="BOQ.csv",
+        )
+        document = GeneratedDocument.objects.create(
+            bid=self.bid,
+            document_type="boq_specifications",
+            title="Compliance to BoQ Specifications",
+            editable_content="Compliance draft\n\nSource BoQ table: BOQ.csv\nOld item | 1\n\nDeclaration\nSigned",
+            template_version=EDITABLE_TEMPLATE_VERSION,
+            generated_by=self.user,
+        )
+
+        response = self.client.post(reverse("bid-prepare", args=[self.bid.pk]), {
+            "return_step": "boq",
+            "bid_number": self.prep.bid_number,
+            "bid_title": self.prep.bid_title,
+            "buyer_name": self.prep.buyer_name,
+            "buyer_department": self.prep.buyer_department,
+            "apply_mse_purchase_preference": "False",
+            "boq-TOTAL_FORMS": "1",
+            "boq-INITIAL_FORMS": "1",
+            "boq-MIN_NUM_FORMS": "0",
+            "boq-MAX_NUM_FORMS": "1000",
+            "boq-0-id": str(item.pk),
+            "boq-0-sort_order": "0",
+            "boq-0-description": "Saved item",
+            "boq-0-quantity": "7",
+            "boq-0-unit": "Each",
+            "boq-0-bidder_response": "Complied",
+            "boq-0-source_data": '{"Item Description":"Saved item","Quantity":"7","Unit":"Each"}',
+        })
+
+        self.assertRedirects(response, f"{reverse('bid-prepare', args=[self.bid.pk])}?step=boq")
+        document.refresh_from_db()
+        self.assertIn("Saved item | 7 | Each", document.editable_content)
+        self.assertNotIn("Old item | 1", document.editable_content)
 
     def test_custom_document_can_be_created_previewed_and_downloaded_for_this_bid(self):
         self.client.force_login(self.user)

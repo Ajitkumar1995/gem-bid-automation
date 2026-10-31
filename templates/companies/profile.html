@@ -4,25 +4,35 @@
 {% block title %}Company profile · GeM Bid Workspace{% endblock %}
 
 {% block content %}
-<main class="shell">
-  <header>
-    <div><p class="eyebrow">REUSABLE BIDDER INFORMATION</p><h1>Company profile</h1><p class="muted">Save accurate company details once. They will be used in generated bid drafts.</p></div>
-    <a class="admin-link" href="{% url 'bid-dashboard' %}">Back to bids</a>
+<main class="shell preparation-shell company-profile-shell">
+  <header class="prep-hero">
+    <div class="prep-hero-copy"><p class="prep-hero-kicker"><span></span> GEM BID WORKSPACE <span class="prep-hero-divider">/</span> COMPANY SETUP</p><h1>Company profile</h1><p class="prep-hero-title">Save your bidder details, signature, and supporting evidence for reuse across bid documents.</p></div>
+    <a class="prep-hero-back" href="{% url 'bid-dashboard' %}"><span aria-hidden="true">←</span> All bids</a><span class="prep-hero-orbit prep-hero-orbit-one" aria-hidden="true"></span><span class="prep-hero-orbit prep-hero-orbit-two" aria-hidden="true"></span>
   </header>
   {% for message in messages %}<p class="notice">{{ message }}</p>{% endfor %}
 
-  <section class="card" data-collapsible data-start-collapsed="true">
-    <h2>Company and authorized signatory</h2>
-    <form method="post">{% csrf_token %}<input type="hidden" name="form_action" value="profile">{{ profile_form.as_p }}<button type="submit">Save company profile</button></form>
-  </section>
+  <div id="company-profile-wizard" class="company-profile-wizard">
+  <nav class="prep-progress" aria-label="Company profile steps">
+    <div class="prep-progress-track" aria-hidden="true"><span></span></div>
+    <button type="button" class="prep-step is-active" data-step-target="0" aria-current="step"><span>01</span><span><strong>Company details</strong><small>Business and signatory</small></span></button>
+    <button type="button" class="prep-step" data-step-target="1"><span>02</span><span><strong>Signature &amp; stamp</strong><small>PDF appearance</small></span></button>
+    <button type="button" class="prep-step" data-step-target="2"><span>03</span><span><strong>Evidence</strong><small>Supporting documents</small></span></button>
+  </nav>
 
-  <section class="card signature-card" data-collapsible data-start-collapsed="true">
-    <h2>Signature editor</h2>
-    <p class="muted">Upload once, adjust the angle and size, and save. Choose which generated documents use the saved signature.</p>
+  <div class="prep-step-panel" data-step-panel="0"><section class="card">
+    <div class="prep-card-heading"><span class="prep-icon">01</span><div><p class="eyebrow">YOUR BIDDER IDENTITY</p><h2>Company and authorized signatory</h2></div></div>
+    <p class="muted">These details are reused in generated letters and declarations. Keep the legal name and address consistent with your registration records.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="form_action" value="profile">{{ profile_form.as_p }}<button type="submit">Save company profile</button></form>
+  </section><div class="prep-step-actions"><a class="prep-back-link" href="{% url 'bid-dashboard' %}"><span aria-hidden="true">←</span> Back to bids</a><span class="prep-step-hint">Step 1 of 3 · Enter the company details used in your bids.</span><button type="button" class="prep-next">Continue to signature <span aria-hidden="true">→</span></button></div></div>
+
+  <div class="prep-step-panel" data-step-panel="1"><section class="card signature-card">
+    <div class="prep-card-heading"><span class="prep-icon">02</span><div><p class="eyebrow">MAKE DOCUMENTS YOURS</p><h2>Signature and stamp editor</h2></div></div>
+    <p class="muted">Set a polished company-wide signature and stamp layout once, then fine-tune any individual PDF whenever you need to.</p>
     <form method="post" enctype="multipart/form-data" id="signature-editor-form">
       {% csrf_token %}<input type="hidden" name="form_action" value="signature">
+      <div class="signature-assets-grid">
       <fieldset class="signature-mark-editor">
-        <legend>Signature</legend>
+        <legend><span class="signature-editor-badge">01</span> Signature</legend>
         <label for="id_signature_image">Signature image (PNG or JPEG, max 2 MB)</label>{{ signature_form.signature_image }}{{ signature_form.signature_image.errors }}
         <p class="footnote">Drag the signature within this preview to set its position in the PDF.</p>
         <div class="signature-preview-stage">
@@ -36,7 +46,7 @@
         <div class="clear-signature">{{ signature_form.clear_signature }}{{ signature_form.clear_signature.label_tag }}{{ signature_form.clear_signature.errors }}</div>
       </fieldset>
       <fieldset class="signature-mark-editor">
-        <legend>Optional company stamp / seal</legend>
+        <legend><span class="signature-editor-badge signature-editor-badge-stamp">02</span> Optional company stamp / seal</legend>
         <p class="footnote">Upload one stamp, adjust its angle and size, then drag it within the preview to set its position in the PDF.</p>
         <label for="id_stamp_image">Stamp image (PNG or JPEG, max 2 MB)</label>{{ signature_form.stamp_image }}{{ signature_form.stamp_image.errors }}
         <div class="stamp-preview-box" id="stamp-preview-box" {% if not profile.stamp_image %}hidden{% endif %}><canvas id="stamp-canvas" width="560" height="300" data-current-image="{% if profile.stamp_image %}{% url 'company-stamp-view' %}?editor=1{% endif %}" data-position-x="{{ signature_form.stamp_position_x.value|default:77 }}" data-position-y="{{ signature_form.stamp_position_y.value|default:50 }}" aria-label="Drag to position company stamp in the PDF"></canvas>{{ signature_form.stamp_position_x }}{{ signature_form.stamp_position_y }}</div>
@@ -45,7 +55,21 @@
         <label for="id_stamp_scale">Stamp size <output id="stamp-scale-output">{{ signature_form.stamp_scale.value|default:1 }}×</output>{{ signature_form.stamp_scale }}</label>{{ signature_form.stamp_scale.errors }}
         <div class="clear-signature">{{ signature_form.clear_stamp }}{{ signature_form.clear_stamp.label_tag }}{{ signature_form.clear_stamp.errors }}</div>
       </fieldset>
-      <fieldset class="signature-document-options"><legend>Add saved signature and stamp to these PDFs</legend>
+      </div>
+      <fieldset class="document-mark-position company-default-mark-position">
+        <legend>Position signature and stamp in this PDF</legend>
+        <p class="footnote">Set the default placement for generated templates. Each PDF’s editor can still override these positions for that document only.</p>
+        <div class="company-position-layout">
+          <canvas id="company-mark-position-canvas" width="560" height="300" data-signature-x="{{ signature_form.signature_position_x.value|default:0 }}" data-signature-y="{{ signature_form.signature_position_y.value|default:50 }}" data-stamp-x="{{ signature_form.stamp_position_x.value|default:77 }}" data-stamp-y="{{ signature_form.stamp_position_y.value|default:50 }}" aria-label="Drag signature and stamp markers to set their company-wide PDF positions"></canvas>
+          <div class="company-position-controls">
+            <label for="company-signature-x"><span>Signature · horizontal</span><output id="company-signature-x-output"></output></label><input id="company-signature-x" type="range" min="0" max="100" step="1" value="{{ signature_form.signature_position_x.value|default:0 }}">
+            <label for="company-signature-y"><span>Signature · vertical</span><output id="company-signature-y-output"></output></label><input id="company-signature-y" type="range" min="0" max="100" step="1" value="{{ signature_form.signature_position_y.value|default:50 }}">
+            <label for="company-stamp-x"><span>Stamp · horizontal</span><output id="company-stamp-x-output"></output></label><input id="company-stamp-x" type="range" min="0" max="100" step="1" value="{{ signature_form.stamp_position_x.value|default:77 }}">
+            <label for="company-stamp-y"><span>Stamp · vertical</span><output id="company-stamp-y-output"></output></label><input id="company-stamp-y" type="range" min="0" max="100" step="1" value="{{ signature_form.stamp_position_y.value|default:50 }}">
+          </div>
+        </div>
+      </fieldset>
+      <fieldset class="signature-document-options" data-collapsible data-start-collapsed="true" data-collapse-key="company-signature-document-options"><legend>Add saved signature and stamp to these PDFs</legend>
         <p class="footnote">Choose independently whether each PDF includes your saved signature, stamp, both, or neither.</p>
         {{ signature_form.signature_document_types.errors }}{{ signature_form.stamp_document_types.errors }}
         <div class="table-wrap"><table class="pdf-mark-table"><thead><tr><th>PDF</th><th>Add signature</th><th>Add stamp</th></tr></thead><tbody>
@@ -54,12 +78,12 @@
           {% endfor %}
         </tbody></table></div>
       </fieldset>
-      <button type="submit">Save signature and PDF choices</button>
+      <button type="submit" class="signature-save-button"><span aria-hidden="true">✓</span> Save signature and PDF choices</button>
     </form>
-  </section>
+  </section><div class="prep-step-actions"><button type="button" class="prep-back"><span aria-hidden="true">←</span> Back to company details</button><span class="prep-step-hint">Step 2 of 3 · Position your marks and choose which PDFs use them.</span><button type="button" class="prep-next">Continue to evidence <span aria-hidden="true">→</span></button></div></div>
 
-  <section class="card" data-collapsible data-start-collapsed="true">
-    <h2>Supporting documents</h2>
+  <div class="prep-step-panel" data-step-panel="2"><section class="card company-evidence-card">
+    <div class="prep-card-heading"><span class="prep-icon">03</span><div><p class="eyebrow">KEEP EVIDENCE READY</p><h2>Supporting documents</h2></div></div>
     <p class="muted">Choose separately whether the saved signature and company stamp appear on each signed PDF copy. Uploaded originals stay unchanged.</p>
     <form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="form_action" value="document">{{ document_form.as_p }}<button type="submit">Add supporting document</button></form>
     <div class="table-wrap"><table><thead><tr><th>Document</th><th>Type</th><th>Entity</th><th>Assessment year</th><th>Marks on signed PDF</th><th>Files</th></tr></thead><tbody>
@@ -69,10 +93,12 @@
       <td><a class="view-link" href="{% url 'company-document-view' doc.id %}" target="_blank" rel="noopener">Original</a>{% if doc.file.name|lower|slice:'-4:' == '.pdf' or doc.file.name|lower|slice:'-4:' == '.png' or doc.file.name|lower|slice:'-4:' == '.jpg' or doc.file.name|lower|slice:'-5:' == '.jpeg' %}<a class="view-link" href="{% url 'company-document-view' doc.id %}?self_attest=1" target="_blank" rel="noopener">Signed PDF copy</a>{% endif %}</td>
     </tr>{% empty %}<tr><td colspan="6">No supporting documents uploaded.</td></tr>{% endfor %}
     </tbody></table></div>
-  </section>
+  </section><div class="prep-step-actions"><button type="button" class="prep-back"><span aria-hidden="true">←</span> Back to signature</button><span class="prep-step-hint">Step 3 of 3 · Add and manage reusable company evidence.</span><a class="prep-done-link" href="{% url 'bid-dashboard' %}">Finish and return to bids</a></div></div>
+  </div>
 </main>
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/signature_editor.js' %}" defer></script>
+<script src="{% static 'js/signature_editor.js' %}?v=2" defer></script>
+<script src="{% static 'js/company_profile_wizard.js' %}?v=1" defer></script>
 {% endblock %}

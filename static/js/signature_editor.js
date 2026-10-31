@@ -13,6 +13,12 @@
   const signaturePositionY = document.getElementById("id_signature_position_y");
   const stampPositionX = document.getElementById("id_stamp_position_x");
   const stampPositionY = document.getElementById("id_stamp_position_y");
+  const companyPositionCanvas = document.getElementById("company-mark-position-canvas");
+  const companyPositionContext = companyPositionCanvas?.getContext("2d");
+  const positionSliders = {
+    signature: {x: document.getElementById("company-signature-x"), y: document.getElementById("company-signature-y")},
+    stamp: {x: document.getElementById("company-stamp-x"), y: document.getElementById("company-stamp-y")},
+  };
   const stampPreviewBox = document.getElementById("stamp-preview-box");
   if (!canvas || !rotation || !scale || !ink) return;
 
@@ -22,10 +28,72 @@
   let signatureMark = null;
   const currentUrl = canvas.dataset.currentImage;
   let stampMark = null;
+  let renderStamp = () => {};
 
   function readPosition(field, fallback) {
     const value = Number(field?.value);
     return Number.isFinite(value) ? value : fallback;
+  }
+
+  function syncPositionSliders() {
+    [["signature", signaturePositionX, signaturePositionY], ["stamp", stampPositionX, stampPositionY]].forEach(([name, xField, yField]) => {
+      const sliders = positionSliders[name];
+      [["x", xField], ["y", yField]].forEach(([axis, field]) => {
+        if (!field || !sliders[axis]) return;
+        sliders[axis].value = field.value;
+        const output = document.getElementById(`company-${name}-${axis}-output`);
+        if (output) output.textContent = `${field.value}%`;
+      });
+      const output = document.getElementById(`${name}-position-output`);
+      if (output && xField && yField) {
+        output.textContent = `PDF position: ${readPosition(xField, 0).toFixed(2)}% from left, ${readPosition(yField, 50).toFixed(2)}% from top.`;
+      }
+    });
+  }
+
+  function drawCompanyPosition() {
+    if (!companyPositionCanvas || !companyPositionContext) return;
+    const width = companyPositionCanvas.width;
+    const height = companyPositionCanvas.height;
+    const ctx = companyPositionContext;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#edf3ef";
+    ctx.fillRect(0, 0, width, height);
+    const page = {x: 30, y: 18, width: width - 60, height: height - 36};
+    ctx.fillStyle = "#fff";
+    ctx.shadowColor = "#223b3020";
+    ctx.shadowBlur = 13;
+    ctx.fillRect(page.x, page.y, page.width, page.height);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#d6e1da";
+    ctx.strokeRect(page.x, page.y, page.width, page.height);
+    ctx.fillStyle = "#819087";
+    ctx.font = "11px sans-serif";
+    ctx.fillText("PDF page preview · drag the markers", page.x + 16, page.y + 22);
+    ctx.strokeStyle = "#e6ece8";
+    for (let row = 0; row < 4; row += 1) {
+      ctx.beginPath();
+      ctx.moveTo(page.x + 16, page.y + 48 + row * 21);
+      ctx.lineTo(page.x + page.width - 16, page.y + 48 + row * 21);
+      ctx.stroke();
+    }
+    [
+      ["signature", signaturePositionX, signaturePositionY, "Signature", "#17694e"],
+      ["stamp", stampPositionX, stampPositionY, "Stamp", "#b65c3f"],
+    ].forEach(([name, xField, yField, label, color]) => {
+      const x = page.x + readPosition(xField, name === "stamp" ? 77 : 0) / 100 * page.width;
+      const y = page.y + readPosition(yField, 50) / 100 * page.height;
+      ctx.fillStyle = `${color}22`;
+      ctx.beginPath();
+      ctx.arc(x, y, 19, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillText(label, Math.min(x + 12, page.x + page.width - 66), y - 12);
+    });
   }
 
   function boundedPosition(canvasElement, x, y, mark) {
@@ -84,6 +152,8 @@
       yField.value = (y / canvasElement.height * 100).toFixed(2);
       updateOutput();
       render();
+      syncPositionSliders();
+      drawCompanyPosition();
     });
     const stopDragging = () => {
       dragging = false;
@@ -145,11 +215,13 @@
       signatureMark = null;
       ctx.fillStyle = "#647579"; ctx.font = "16px sans-serif";
       ctx.fillText("Upload a signature image to preview", 24, 45);
+      drawCompanyPosition();
       return;
     }
     const mark = makeInk(sourceImage, isRawUpload);
     if (!mark) {
       signatureMark = null;
+      drawCompanyPosition();
       return;
     }
     const frameScale = Math.max(Number(scale.value), Number(stampScale?.value || 1), 1);
@@ -158,6 +230,7 @@
       * Number(scale.value) / frameScale;
     signatureMark = {image: mark, angle: Number(rotation.value), factor: fit, width: mark.width * fit, height: mark.height * fit};
     paintMark(ctx, canvas, mark, signatureMark.angle, fit, positionX, positionY);
+    drawCompanyPosition();
   }
 
   function loadImage(src, rawUpload) {
@@ -176,7 +249,7 @@
   if (stampCanvas && stampRotation && stampScale) {
     const stampContext = stampCanvas.getContext("2d");
     let stampImage = null;
-    function renderStamp() {
+    renderStamp = function renderStamp() {
       stampContext.clearRect(0, 0, stampCanvas.width, stampCanvas.height);
       stampContext.fillStyle = "#fff";
       stampContext.fillRect(0, 0, stampCanvas.width, stampCanvas.height);
@@ -184,6 +257,7 @@
       document.getElementById("stamp-scale-output").textContent = `${Number(stampScale.value).toFixed(2)}×`;
       if (!stampImage) {
         stampMark = null;
+        drawCompanyPosition();
         return;
       }
       const width = stampImage.naturalWidth || stampImage.width;
@@ -209,7 +283,8 @@
         readPosition(stampPositionX, 77) / 100 * stampCanvas.width,
         readPosition(stampPositionY, 50) / 100 * stampCanvas.height,
       );
-    }
+      drawCompanyPosition();
+    };
     function loadStamp(src) {
       const image = new Image();
       image.onload = () => { stampImage = image; renderStamp(); };
@@ -219,6 +294,13 @@
     if (stampCanvas.dataset.currentImage) loadStamp(previewUrl(stampCanvas.dataset.currentImage));
     else renderStamp();
     [stampRotation, stampScale].forEach((control) => control.addEventListener("input", renderStamp));
+    [[positionSliders.stamp.x, stampPositionX], [positionSliders.stamp.y, stampPositionY]].forEach(([slider, field]) => {
+      slider?.addEventListener("input", () => {
+        if (field) field.value = slider.value;
+        syncPositionSliders();
+        renderStamp();
+      });
+    });
     bindDrag(stampCanvas, stampPositionX, stampPositionY, () => stampMark, renderStamp, "stamp-position-output", 77, 50);
     stampInput?.addEventListener("change", () => {
       const file = stampInput.files?.[0];
@@ -252,6 +334,64 @@
     loadImage(URL.createObjectURL(file), true);
   });
   [rotation, scale, ink].forEach((control) => control.addEventListener("input", render));
+  [[positionSliders.signature.x, signaturePositionX], [positionSliders.signature.y, signaturePositionY]].forEach(([slider, field]) => {
+    slider?.addEventListener("input", () => {
+      if (field) field.value = slider.value;
+      syncPositionSliders();
+      render();
+    });
+  });
   bindDrag(canvas, signaturePositionX, signaturePositionY, () => signatureMark, render, "signature-position-output", 0, 50);
+
+  if (companyPositionCanvas && companyPositionContext) {
+    let draggedPosition = "";
+    const positionFields = {
+      signature: {x: signaturePositionX, y: signaturePositionY, defaultX: 0, color: "#17694e"},
+      stamp: {x: stampPositionX, y: stampPositionY, defaultX: 77, color: "#b65c3f"},
+    };
+    companyPositionCanvas.addEventListener("pointerdown", (event) => {
+      const rect = companyPositionCanvas.getBoundingClientRect();
+      const px = (event.clientX - rect.left) * companyPositionCanvas.width / rect.width;
+      const py = (event.clientY - rect.top) * companyPositionCanvas.height / rect.height;
+      const page = {x: 30, y: 18, width: companyPositionCanvas.width - 60, height: companyPositionCanvas.height - 36};
+      let nearest = Infinity;
+      Object.entries(positionFields).forEach(([name, fields]) => {
+        const x = page.x + readPosition(fields.x, fields.defaultX) / 100 * page.width;
+        const y = page.y + readPosition(fields.y, 50) / 100 * page.height;
+        const distance = Math.hypot(px - x, py - y);
+        if (distance < nearest) {
+          nearest = distance;
+          draggedPosition = name;
+        }
+      });
+      if (nearest > 34) draggedPosition = "";
+      if (draggedPosition) {
+        companyPositionCanvas.setPointerCapture(event.pointerId);
+        companyPositionCanvas.style.cursor = "grabbing";
+      }
+    });
+    companyPositionCanvas.addEventListener("pointermove", (event) => {
+      if (!draggedPosition) return;
+      const rect = companyPositionCanvas.getBoundingClientRect();
+      const page = {x: 30, y: 18, width: companyPositionCanvas.width - 60, height: companyPositionCanvas.height - 36};
+      const px = (event.clientX - rect.left) * companyPositionCanvas.width / rect.width;
+      const py = (event.clientY - rect.top) * companyPositionCanvas.height / rect.height;
+      const fields = positionFields[draggedPosition];
+      fields.x.value = (Math.max(0, Math.min(100, (px - page.x) / page.width * 100))).toFixed(2);
+      fields.y.value = (Math.max(0, Math.min(100, (py - page.y) / page.height * 100))).toFixed(2);
+      syncPositionSliders();
+      if (draggedPosition === "signature") render();
+      else renderStamp();
+    });
+    const stopPositionDrag = () => {
+      draggedPosition = "";
+      companyPositionCanvas.style.cursor = "grab";
+    };
+    companyPositionCanvas.addEventListener("pointerup", stopPositionDrag);
+    companyPositionCanvas.addEventListener("pointercancel", stopPositionDrag);
+    companyPositionCanvas.style.cursor = "grab";
+  }
+  syncPositionSliders();
+  drawCompanyPosition();
 
 })();

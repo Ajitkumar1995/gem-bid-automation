@@ -90,7 +90,9 @@ def _normalized_table(rows, source_label):
         quantity = values[quantity_index].strip()
         if not description or not quantity:
             continue
-        raw = {header: value for header, value in zip(headers, values) if value}
+        # Keep every CSV column, including blank cells, so the editable grid
+        # can preserve the source file's exact header order and layout.
+        raw = {header: value for header, value in zip(headers, values)}
         items.append({
             "description": description[:500],
             "quantity": quantity[:50],
@@ -269,12 +271,15 @@ def extracted_boq_tables(preparation):
         group["rows"].append(item)
     result = []
     for group in groups.values():
-        headers = [*group["headers"], "Bidder Response"]
+        has_response_column = any(source_field_for_header(header) == "bidder_response" for header in group["headers"])
+        headers = [*group["headers"]]
+        if not has_response_column:
+            headers.append("Bidder Response")
         group["rows"] = [
             {
                 "cells": [
-                    *[item.source_data.get(header, "") for header in group["headers"]],
-                    item.bidder_response or "Complied",
+                    *editable_source_values(item, group["headers"]),
+                    *([] if has_response_column else [item.bidder_response or "Complied"]),
                 ],
                 "description": item.description,
             }
@@ -283,6 +288,56 @@ def extracted_boq_tables(preparation):
         group["headers"] = headers
         result.append(group)
     return result
+
+
+def source_field_for_header(header):
+    if _QUANTITY_HEADER.search(header):
+        return "quantity"
+    if _UNIT_HEADER.search(header):
+        return "unit"
+    if _RESPONSE_HEADER.search(header):
+        return "bidder_response"
+    if _DESCRIPTION_HEADER.search(header) and not _ITEM_IDENTIFIER_HEADER.search(header) and not re.search(r"\bspecification\b", header, re.IGNORECASE):
+        return "description"
+    return ""
+
+
+def _preferred_source_headers(item):
+    preferred = {}
+    headers = list(item.source_data or {})
+    for field_name in ("quantity", "unit", "bidder_response", "description"):
+        candidates = [header for header in headers if source_field_for_header(header) == field_name]
+        if field_name == "description":
+            candidates.sort(key=lambda header: (
+                not bool(re.search(r"description|particular|product|service|material|work|name|item", header, re.IGNORECASE)),
+                bool(re.search(r"specification", header, re.IGNORECASE)),
+            ))
+        if candidates:
+            preferred[field_name] = candidates[0]
+    return preferred
+
+
+def editable_source_values(item, headers):
+    """Keep imported source cell text intact; use editable core fields for fallbacks."""
+    preferred = _preferred_source_headers(item)
+    source_data = item.source_data or {}
+    values = []
+    core_headers = {"description": "Description", "quantity": "Quantity", "unit": "Unit", "bidder_response": "Bidder Response"}
+    for header in headers:
+        if header in source_data:
+            values.append(source_data[header])
+            continue
+        field_name = source_field_for_header(header)
+        if field_name and (preferred.get(field_name) == header or header == core_headers[field_name]):
+            value = getattr(item, field_name)
+            if field_name == "quantity" and value is not None:
+                value = format(value.normalize(), "f")
+            elif field_name == "bidder_response":
+                value = value or "Complied"
+            values.append(value)
+        else:
+            values.append("")
+    return values
 
 
 def import_cached_linked_boq_tables(preparation, max_files=10):
@@ -313,3 +368,30 @@ def import_cached_linked_boq_tables(preparation, max_files=10):
         tables = extract_boq_tables(content, filename, document.content_type)
         imported += import_boq_tables(preparation, tables)
     return imported
+
+
+def extract_default_boq_tables(preparation, max_files=1):
+    """Restore defaults from a downloaded BoQ CSV, never from PDF tables."""
+    from apps.documents.models import LinkedDocument
+
+    candidates = []
+    for document in preparation.bid.linked_documents.filter(
+        status=LinkedDocument.Status.DOWNLOADED,
+    ).exclude(file=""):
+        filename = document.file_name or document.filename
+        if Path(filename).suffix.lower() != ".csv":
+            continue
+        priority_text = " ".join((filename, document.label, document.url)).casefold()
+        candidates.append((
+            not bool(re.search(r"\bboq\b|bill.?of.?quantit|line.?items?", priority_text)),
+            document.created_at,
+            document.pk,
+            document,
+            filename,
+        ))
+
+    tables = []
+    for _not_boq_named, _created_at, _document_id, document, filename in sorted(candidates)[:max_files]:
+        with document.file.open("rb") as source:
+            tables.extend(extract_boq_tables(source.read(), filename, document.content_type))
+    return tables

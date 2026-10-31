@@ -4,7 +4,7 @@
 {% block title %}GeM bids · GeM Bid Workspace{% endblock %}
 
 {% block content %}
-  <main class="shell">
+  <main class="shell dashboard-shell">
     <header><div><p class="eyebrow">TENDER WORKSPACE</p><h1>GeM bids</h1><p class="muted">Upload a bid document, review its files, and prepare bid-specific documents from your company profile.</p></div></header>
     {% if messages %}<section class="card messages" role="status">{% for message in messages %}<p>{{ message }}</p>{% endfor %}</section>{% endif %}
     <section class="card">
@@ -13,18 +13,33 @@
       {% if bid_limit_reached %}<p class="error" id="bid-limit-message">You have reached your maximum active bid limit of {{ active_bid_limit }}. Please complete or delete an existing bid before creating another bid.</p>{% else %}<p class="muted">Upload a GeM PDF to start a bid workspace. Reusable company documents remain in Company Profile.</p>{% endif %}
       <form id="upload-form" action="{% url 'bid-list' %}" data-upload-url="{% url 'bid-list' %}" data-at-limit="{{ bid_limit_reached|yesno:'true,false' }}" enctype="multipart/form-data">
         {% csrf_token %}
-        <label>GeM PDF <input name="source_pdf" type="file" accept="application/pdf,.pdf" required {% if bid_limit_reached %}disabled{% endif %}></label>
-        <button type="submit" {% if bid_limit_reached %}disabled{% endif %}>Upload and process</button><span id="upload-message" role="status"></span>
+        <label for="bid-pdf-input">GeM bid PDF</label>
+        <div class="bid-upload-control">
+          <input id="bid-pdf-input" name="source_pdf" type="file" accept="application/pdf,.pdf" required aria-describedby="bid-pdf-guidance selected-file-name" data-placeholder="Choose a GeM tender PDF" {% if bid_limit_reached %}disabled{% endif %}>
+          <span id="selected-file-name" class="selected-file-name">Choose a GeM tender PDF</span>
+        </div>
+        <p id="bid-pdf-guidance" class="upload-guidance">Accepted format: PDF (.pdf), up to 50 MB. Upload the original GeM bid document. Renaming a Word file, image, or another file to .pdf will not work.</p>
+        <button type="submit" title="Create a workspace from this GeM tender PDF and start extracting its details and linked files." {% if bid_limit_reached %}disabled{% endif %}>Upload and process</button><span id="upload-message" role="status"></span>
       </form>
     </section>
-    <section class="card"><h2>Active bids</h2>
-      <div class="table-wrap"><table><thead><tr><th>Bid</th><th>Bid number</th><th>Status</th><th>Linked files</th><th>Uploaded</th><th>File and actions</th></tr></thead>
-      <tbody id="bid-list">{% for bid in bids %}<tr><td>{{ bid.title|default:bid }}</td><td>{{ bid.bid_number|default:'—' }}</td><td><span class="status {{ bid.status }}">{{ bid.get_status_display }}</span>{% if bid.processing_error %}<p class="error">{{ bid.processing_error }}</p>{% endif %}</td><td>{{ bid.linked_documents.count }}</td><td>{{ bid.created_at|date:'d M Y, H:i' }}</td><td>{% if bid.source_pdf %}<span class="file-name">{{ bid.source_filename }}</span><div class="bid-action-links"><a class="pdf-action-link" href="{% url 'bid-link-list' bid.id %}" target="_blank" rel="noopener">View links</a><a class="pdf-action-link" href="{% url 'bid-prepare' bid.id %}">Prepare PDFs</a><form method="post" action="{% url 'bid-complete' bid.id %}" onsubmit="return confirm('Complete this bid and clear its temporary files?')">{% csrf_token %}<button class="small-button" name="action" value="complete">Complete Bid</button></form><form method="post" action="{% url 'bid-complete' bid.id %}" onsubmit="return confirm('Delete this bid and its temporary files?')">{% csrf_token %}<button class="small-button delete-button" name="action" value="delete">Delete Bid</button></form></div>{% else %}—{% endif %}</td></tr>{% empty %}<tr class="empty"><td colspan="6">No active bids. Create a new bid above.</td></tr>{% endfor %}</tbody></table></div>
+    <section class="card active-bids-card">
+      <div class="active-bids-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h2>Active bids</h2><p class="muted">Track document processing, review linked files, and continue preparing each bid.</p></div><div class="active-bids-total"><span class="active-total-icon" aria-hidden="true">↗</span><span><strong>{{ bids|length }}</strong><small>active bid{{ bids|length|pluralize }}</small></span></div></div>
+      <details class="bid-actions-guide"><summary><span class="guide-summary-icon" aria-hidden="true">?</span><span><strong>New here?</strong> See what each bid action does</span><span class="guide-chevron" aria-hidden="true">⌄</span></summary><div class="bid-guide-grid"><article><span>01</span><div><strong>Prepare PDFs</strong><p>Your main next step. Review extracted bid details and create the forms and declarations to upload with your offer.</p></div></article><article><span>02</span><div><strong>View links</strong><p>See files and web links detected in the bid PDF, check their download status, and open supporting attachments such as the BoQ.</p></div></article><article><span>03</span><div><strong>Complete Bid</strong><p>Finish the workspace and clear its temporary bid files when you are done. Your company profile and reusable evidence stay saved.</p></div></article><article><span>04</span><div><strong>Delete Bid</strong><p>Remove this bid and its temporary files if it was added by mistake. This cannot be undone.</p></div></article></div></details>
+      <div class="table-wrap"><table class="active-bids-table"><thead><tr><th>Bid workspace</th><th>Bid number</th><th>Status</th><th>Linked files</th><th>Uploaded</th><th>Documents &amp; actions</th></tr></thead>
+      <tbody id="bid-list">{% for bid in bids %}<tr class="bid-row bid-row-{{ bid.status }}"><td data-label="Bid workspace"><div class="bid-identity"><span class="bid-file-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M7 3.75h6.2L18 8.6v11.65H7a2 2 0 0 1-2-2V5.75a2 2 0 0 1 2-2Z"/><path d="M13 4v5h5M8 13h8M8 16.5h6"/></svg></span><span class="bid-identity-copy"><strong>{{ bid.title|default:bid }}</strong><small>Workspace created {{ bid.created_at|date:'d M Y' }}</small></span></div></td><td data-label="Bid number"><span class="bid-number-pill">{% if bid.bid_number %}{{ bid.bid_number }}{% else %}<span class="bid-number-missing">Not detected</span>{% endif %}</span></td><td data-label="Status"><span class="bid-status-chip bid-status-{{ bid.status }}"><span class="bid-status-dot"></span>{{ bid.get_status_display }}</span>{% if bid.processing_error %}<p class="bid-processing-error">{{ bid.processing_error }}</p>{% endif %}</td><td data-label="Linked files"><span class="linked-file-count"><span aria-hidden="true">▤</span>{{ bid.linked_documents.count }} <small>files</small></span></td><td data-label="Uploaded"><span class="bid-upload-date">{{ bid.created_at|date:'d M Y' }}<small>{{ bid.created_at|date:'H:i' }}</small></span></td><td data-label="Documents & actions">{% if bid.source_pdf %}<div class="bid-document-cell"><span class="bid-source-file"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5.5 2.75h5.4l4.1 4.1v9.4a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-12.5a1 1 0 0 1 1-1Z"/><path d="M10.75 3v4.25H15M6.75 12h5.75M6.75 14.5h4.5"/></svg>{{ bid.source_filename }}</span><div class="bid-action-links"><a class="pdf-action-link" href="{% url 'bid-link-list' bid.id %}" target="_blank" rel="noopener" title="Browse the attachments and web links detected in this bid PDF.">View links</a><a class="pdf-action-link bid-prepare-link" href="{% url 'bid-prepare' bid.id %}" title="Main next step: review the extracted bid details and prepare the PDFs for your offer.">Prepare PDFs <span aria-hidden="true">→</span></a><form method="post" action="{% url 'bid-complete' bid.id %}" onsubmit="return confirm('Complete this bid and clear its temporary files?')">{% csrf_token %}<button class="small-button" name="action" value="complete" title="Finish this bid and clear temporary bid files. Your company profile and reusable documents are kept.">Complete Bid</button></form><form method="post" action="{% url 'bid-complete' bid.id %}" onsubmit="return confirm('Delete this bid and its temporary files?')">{% csrf_token %}<button class="small-button delete-button" name="action" value="delete" title="Permanently remove this bid and its temporary files. This cannot be undone.">Delete Bid</button></form></div></div>{% else %}—{% endif %}</td></tr>{% empty %}<tr class="empty"><td colspan="6"><div class="empty-bids-state"><span aria-hidden="true">＋</span><strong>No active bids yet</strong><small>Upload a GeM bid PDF above and your workspace will appear here.</small></div></td></tr>{% endfor %}</tbody></table></div>
     </section>
   </main>
+  <dialog id="upload-error-dialog" class="upload-error-dialog" aria-labelledby="upload-error-title" aria-describedby="upload-error-description">
+    <div class="upload-error-mark" aria-hidden="true">!</div>
+    <p class="eyebrow">FILE NOT ACCEPTED</p>
+    <h2 id="upload-error-title">Check your GeM PDF</h2>
+    <p id="upload-error-description" class="upload-error-description"></p>
+    <p class="upload-error-format"><strong>Accepted:</strong> a valid PDF file (.pdf), up to 50 MB.</p>
+    <button type="button" id="upload-error-close">Got it</button>
+  </dialog>
 {% endblock %}
 
 {% block scripts %}
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="{% static 'js/bids.js' %}"></script>
+  <script src="{% static 'js/bids.js' %}?v=2"></script>
 {% endblock %}

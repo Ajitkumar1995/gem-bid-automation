@@ -29,7 +29,7 @@ class CompanySignatureEditorTests(TestCase):
     def test_company_profile_renders_signature_editor(self):
         response = self.client.get("/companies/profile/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Signature editor")
+        self.assertContains(response, "Signature and stamp editor")
         self.assertContains(response, "id_signature_rotation")
         self.assertContains(response, "id_stamp_rotation")
         self.assertContains(response, "id_stamp_scale")
@@ -37,6 +37,12 @@ class CompanySignatureEditorTests(TestCase):
         self.assertContains(response, "drag it within the preview to set its position in the PDF")
         self.assertContains(response, 'id="signature-canvas" width="560" height="300"')
         self.assertContains(response, 'id="stamp-canvas" width="560" height="300"')
+        self.assertContains(response, "Position signature and stamp in this PDF")
+        self.assertContains(response, 'id="company-mark-position-canvas"')
+        self.assertContains(response, 'id="company-signature-x"')
+        self.assertContains(response, 'id="company-stamp-y"')
+        self.assertContains(response, 'data-collapse-key="company-signature-document-options"')
+        self.assertContains(response, 'data-start-collapsed="true"')
         self.assertContains(response, 'max="90"')
         self.assertContains(response, 'min="-90"')
         self.assertContains(response, "Add saved signature and stamp to these PDFs")
@@ -47,14 +53,15 @@ class CompanySignatureEditorTests(TestCase):
         self.assertContains(response, "Add stamp")
         self.assertContains(response, "Optional company stamp / seal")
         page = response.content.decode()
-        self.assertEqual(page.count('data-start-collapsed="true"'), 3)
         general_profile_form = page.split('<input type="hidden" name="form_action" value="profile">', 1)[1].split('</form>', 1)[0]
         self.assertNotIn("stamp_rotation", general_profile_form)
         self.assertNotIn("stamp_scale", general_profile_form)
         self.assertEqual(page.count('name="stamp_rotation"'), 1)
         self.assertEqual(page.count('name="stamp_scale"'), 1)
-        signature_start = page.index("<legend>Signature</legend>")
-        stamp_start = page.index("<legend>Optional company stamp / seal</legend>")
+        signature_start = page.index("01</span> Signature</legend>")
+        stamp_start = page.index("02</span> Optional company stamp / seal</legend>")
+        position_start = page.index("Position signature and stamp in this PDF")
+        self.assertLess(stamp_start, position_start)
         control_order = (
             'for="id_signature_image"',
             'id="signature-canvas"',
